@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
   contents: write
@@ -19,6 +19,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+
+      - name: Configure git identity for tests
+        run: |
+          git config --global user.email "ci@proofrun.dev"
+          git config --global user.name "ProofRun CI"
+
+      # Gate the release on the tagged commit actually passing, rather than
+      # trusting that whatever it points at already went through test.yml —
+      # a tag can be pushed at any commit, tested or not.
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
 
       - uses: goreleaser/goreleaser-action@v6
         with:

@@ -4,7 +4,7 @@
 
 ```bash
 # install (see Releases for other platforms)
-curl -L https://github.com/yebiguo/ProofRun/releases/latest/download/proofrun_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/yebiguo/proofrun/releases/latest/download/proofrun_linux_amd64.tar.gz | tar xz
 
 # use
 proofrun init                    # writes .proofrun.yml
@@ -43,6 +43,7 @@ proofrun init                      # generate .proofrun.yml in the current direc
 proofrun run <check-name> -- <cmd> # run <cmd> for real, record exit code + duration bound to current git state
 proofrun status [--strict]         # show status of every check; --strict exits non-zero if any required check isn't PASS
 proofrun report [--json]           # human-readable or machine-readable full report
+proofrun --version                 # print the build's version, commit, and date
 ```
 
 ## Config: `.proofrun.yml`
