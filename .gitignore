@@ -1,0 +1,19 @@
+# build artifacts
+/proofrun
+/proofrun.exe
+/dist/
+
+# ProofRun's own local receipt (this is a per-machine artifact, not versioned)
+.proofrun/
+
+# Go
+*.test
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
