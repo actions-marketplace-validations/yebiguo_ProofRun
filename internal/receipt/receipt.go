@@ -135,3 +135,49 @@ func (r *Receipt) Set(name string, result CheckResult) {
 	}
 	r.Checks[name] = result
 }
+
+// EvaluatedStatus is the display-time status of a check: what you see from
+// `proofrun status`. Unlike Status, it is never written to disk — it is
+// always recomputed from the stored CheckResult (if any) and the caller's
+// current fingerprint. There are exactly four values; do not add a fifth
+// (e.g. an inferred/guessed status) without revisiting AGENTS.md — the
+// whole point of ProofRun is that this value only ever comes from an
+// observed execution or the absence of one, never from inference.
+type EvaluatedStatus string
+
+const (
+	Pass   EvaluatedStatus = "PASS"
+	Fail   EvaluatedStatus = "FAIL"
+	Stale  EvaluatedStatus = "STALE"
+	NotRun EvaluatedStatus = "NOT RUN"
+)
+
+// Evaluation is one check's display-time status plus the stored result it
+// was derived from, if any.
+type Evaluation struct {
+	Name   string
+	Status EvaluatedStatus
+	Stored *CheckResult
+}
+
+// Evaluate compares the receipt's stored result for name (if any) against
+// the caller-supplied current fingerprint:
+//   - no stored result at all               -> NOT RUN
+//   - stored result's fingerprint mismatches -> STALE (regardless of the
+//     stored exit code — a stale PASS is not a PASS)
+//   - fingerprint matches, stored status was pass -> PASS
+//   - fingerprint matches, stored status was fail -> FAIL
+func Evaluate(r *Receipt, name string, current Fingerprint) Evaluation {
+	cr, ok := r.Checks[name]
+	if !ok {
+		return Evaluation{Name: name, Status: NotRun}
+	}
+	stored := cr
+	if !cr.VerifiedAgainst.Equal(current) {
+		return Evaluation{Name: name, Status: Stale, Stored: &stored}
+	}
+	if cr.Status == StatusPass {
+		return Evaluation{Name: name, Status: Pass, Stored: &stored}
+	}
+	return Evaluation{Name: name, Status: Fail, Stored: &stored}
+}

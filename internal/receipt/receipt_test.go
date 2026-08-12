@@ -96,6 +96,100 @@ func TestLoad_RejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestEvaluate_NotRun(t *testing.T) {
+	r := New()
+	eval := Evaluate(r, "test", Fingerprint{Head: "h", DiffSHA256: "d"})
+	if eval.Status != NotRun {
+		t.Fatalf("Status = %q, want %q", eval.Status, NotRun)
+	}
+	if eval.Stored != nil {
+		t.Fatal("Stored should be nil for NOT RUN")
+	}
+}
+
+func TestEvaluate_PassWhenFingerprintMatches(t *testing.T) {
+	r := New()
+	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"x"}, 0, time.Now(), 0, fp))
+
+	eval := Evaluate(r, "test", fp)
+	if eval.Status != Pass {
+		t.Fatalf("Status = %q, want %q", eval.Status, Pass)
+	}
+	if eval.Stored == nil {
+		t.Fatal("Stored should be set for PASS")
+	}
+}
+
+func TestEvaluate_FailWhenFingerprintMatches(t *testing.T) {
+	r := New()
+	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"x"}, 1, time.Now(), 0, fp))
+
+	eval := Evaluate(r, "test", fp)
+	if eval.Status != Fail {
+		t.Fatalf("Status = %q, want %q", eval.Status, Fail)
+	}
+}
+
+func TestEvaluate_StaleWhenHeadDiffers(t *testing.T) {
+	r := New()
+	recorded := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"x"}, 0, time.Now(), 0, recorded))
+
+	current := Fingerprint{Head: "h2", DiffSHA256: "d1"}
+	eval := Evaluate(r, "test", current)
+	if eval.Status != Stale {
+		t.Fatalf("Status = %q, want %q (HEAD moved)", eval.Status, Stale)
+	}
+}
+
+func TestEvaluate_StaleWhenDiffDiffers(t *testing.T) {
+	r := New()
+	recorded := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"x"}, 0, time.Now(), 0, recorded))
+
+	current := Fingerprint{Head: "h1", DiffSHA256: "d2"}
+	eval := Evaluate(r, "test", current)
+	if eval.Status != Stale {
+		t.Fatalf("Status = %q, want %q (working tree changed)", eval.Status, Stale)
+	}
+}
+
+func TestEvaluate_StalePassIsNotReportedAsPass(t *testing.T) {
+	// A stored PASS whose fingerprint no longer matches must never surface
+	// as PASS — this is the single most important guarantee in the whole
+	// tool. A false PASS here is the failure mode the entire product
+	// exists to prevent.
+	r := New()
+	recorded := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"x"}, 0, time.Now(), 0, recorded))
+
+	current := Fingerprint{Head: "h1", DiffSHA256: "different"}
+	eval := Evaluate(r, "test", current)
+	if eval.Status == Pass {
+		t.Fatal("a stale result was reported as PASS")
+	}
+	if eval.Status != Stale {
+		t.Fatalf("Status = %q, want %q", eval.Status, Stale)
+	}
+}
+
+func TestEvaluate_StaleTakesPrecedenceOverFail(t *testing.T) {
+	// Even a stored FAIL becomes STALE (not FAIL) once the fingerprint no
+	// longer matches — the stored exit code says nothing about the current
+	// code, so it must not be surfaced as if it did.
+	r := New()
+	recorded := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"x"}, 1, time.Now(), 0, recorded))
+
+	current := Fingerprint{Head: "h1", DiffSHA256: "d2"}
+	eval := Evaluate(r, "test", current)
+	if eval.Status != Stale {
+		t.Fatalf("Status = %q, want %q", eval.Status, Stale)
+	}
+}
+
 func TestSet_OverwritesExistingCheck(t *testing.T) {
 	r := New()
 	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
