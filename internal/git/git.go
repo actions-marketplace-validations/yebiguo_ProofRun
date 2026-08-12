@@ -60,7 +60,13 @@ func Head(dir string) (string, error) {
 // changes to tracked files, and untracked-but-not-ignored files. It does
 // not use any whitespace-ignoring diff options, so a single changed space
 // in a tracked file produces a different fingerprint.
-func DiffFingerprint(dir string) (string, error) {
+//
+// excludeTopLevelDirs names top-level, repo-relative directories (e.g.
+// ".proofrun") whose untracked contents are never folded into the
+// fingerprint. This exists so ProofRun's own local state directory — which
+// only comes into being *because* a check was run — cannot invalidate the
+// very fingerprint that check was just bound to.
+func DiffFingerprint(dir string, excludeTopLevelDirs ...string) (string, error) {
 	if _, err := Head(dir); err != nil {
 		return "", err
 	}
@@ -75,12 +81,21 @@ func DiffFingerprint(dir string) (string, error) {
 		return "", err
 	}
 
+	excluded := make(map[string]bool, len(excludeTopLevelDirs))
+	for _, d := range excludeTopLevelDirs {
+		excluded[filepath.ToSlash(d)] = true
+	}
+
 	var files []string
 	for _, f := range strings.Split(untracked, "\n") {
 		f = strings.TrimSpace(f)
-		if f != "" {
-			files = append(files, f)
+		if f == "" {
+			continue
 		}
+		if top := strings.SplitN(f, "/", 2)[0]; excluded[top] {
+			continue
+		}
+		files = append(files, f)
 	}
 	sort.Strings(files)
 

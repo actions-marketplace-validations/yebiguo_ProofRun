@@ -191,6 +191,43 @@ func TestDiffFingerprint_IgnoresGitignoredFiles(t *testing.T) {
 	}
 }
 
+func TestDiffFingerprint_ExcludesGivenTopLevelDir(t *testing.T) {
+	dir := newTestRepo(t)
+
+	before, err := DiffFingerprint(dir, ".proofrun")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate proofrun writing its own receipt into .proofrun/ as an
+	// untracked file — this must not shift the fingerprint, or every run
+	// would invalidate the very result it just recorded.
+	if err := os.MkdirAll(filepath.Join(dir, ".proofrun"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".proofrun", "receipt.json"), []byte(`{"schema":"proofrun/v1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := DiffFingerprint(dir, ".proofrun")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before != after {
+		t.Fatal("fingerprint changed after writing into an excluded top-level directory")
+	}
+
+	// Sanity check: without the exclusion, it does change.
+	withoutExclusion, err := DiffFingerprint(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutExclusion == before {
+		t.Fatal("expected fingerprint without exclusion to differ once .proofrun/ has untracked content")
+	}
+}
+
 func TestIsRepo(t *testing.T) {
 	repo := newTestRepo(t)
 	if !IsRepo(repo) {
