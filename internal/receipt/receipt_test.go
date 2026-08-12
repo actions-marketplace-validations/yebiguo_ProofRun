@@ -190,6 +190,81 @@ func TestEvaluate_StaleTakesPrecedenceOverFail(t *testing.T) {
 	}
 }
 
+func TestEvaluateAgainstCommand_MismatchedCommandCannotForgePass(t *testing.T) {
+	// The scenario a real config declares: `test: go test ./...`, but the
+	// CLI's `-- <cmd>` lets a caller run anything and label it "test". A
+	// mismatched command must never read as PASS, even though the actual
+	// executed command (`true`) legitimately exited 0.
+	r := New()
+	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"true"}, 0, time.Now(), 0, fp))
+
+	eval := EvaluateAgainstCommand(r, "test", fp, "go test ./...")
+	if eval.Status == Pass {
+		t.Fatal("a check run with the wrong command was reported as PASS")
+	}
+	if eval.Status != NotRun {
+		t.Fatalf("Status = %q, want %q", eval.Status, NotRun)
+	}
+	if eval.Note == "" {
+		t.Fatal("expected a Note explaining the command mismatch")
+	}
+}
+
+func TestEvaluateAgainstCommand_MismatchedCommandCannotForgeFailEither(t *testing.T) {
+	// Symmetric case: a wrong command that happens to fail must not be
+	// reported as FAIL either — it says nothing about the configured
+	// check, so it must stay NOT RUN just like the PASS case.
+	r := New()
+	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"false"}, 1, time.Now(), 0, fp))
+
+	eval := EvaluateAgainstCommand(r, "test", fp, "go test ./...")
+	if eval.Status != NotRun {
+		t.Fatalf("Status = %q, want %q", eval.Status, NotRun)
+	}
+}
+
+func TestEvaluateAgainstCommand_MatchingCommandPassesThrough(t *testing.T) {
+	r := New()
+	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"go", "test", "./..."}, 0, time.Now(), 0, fp))
+
+	eval := EvaluateAgainstCommand(r, "test", fp, "go test ./...")
+	if eval.Status != Pass {
+		t.Fatalf("Status = %q, want %q for a command that matches config exactly", eval.Status, Pass)
+	}
+}
+
+func TestEvaluateAgainstCommand_NoExpectedCommandBehavesLikeEvaluate(t *testing.T) {
+	// A check not declared in .proofrun.yml (or declared with no command)
+	// has nothing to compare against, so any recorded command is accepted
+	// — this is the same behavior as the plain Evaluate.
+	r := New()
+	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("adhoc", NewResult([]string{"anything"}, 0, time.Now(), 0, fp))
+
+	eval := EvaluateAgainstCommand(r, "adhoc", fp, "")
+	if eval.Status != Pass {
+		t.Fatalf("Status = %q, want %q when there is no expected command to check against", eval.Status, Pass)
+	}
+}
+
+func TestEvaluateAgainstCommand_StaleTakesPrecedenceOverCommandCheck(t *testing.T) {
+	// Fingerprint mismatch must still win even for a check with a
+	// declared command — STALE, not NOT RUN, since the command *did*
+	// match, the code just changed since.
+	r := New()
+	recorded := Fingerprint{Head: "h1", DiffSHA256: "d1"}
+	r.Set("test", NewResult([]string{"go", "test", "./..."}, 0, time.Now(), 0, recorded))
+
+	current := Fingerprint{Head: "h1", DiffSHA256: "d2"}
+	eval := EvaluateAgainstCommand(r, "test", current, "go test ./...")
+	if eval.Status != Stale {
+		t.Fatalf("Status = %q, want %q", eval.Status, Stale)
+	}
+}
+
 func TestSet_OverwritesExistingCheck(t *testing.T) {
 	r := New()
 	fp := Fingerprint{Head: "h1", DiffSHA256: "d1"}

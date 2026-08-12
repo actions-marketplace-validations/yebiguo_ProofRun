@@ -125,6 +125,27 @@ func TestIntegration_UnrelatedRunDoesNotSelfInvalidate(t *testing.T) {
 	}
 }
 
+// TestIntegration_ForgedCommandCannotSatisfyRequiredCheck reproduces the
+// exact CLI-level exploit reported in review: `proofrun run test -- true`
+// against a config that declares `test: go test ./...` must not be
+// evaluated as PASS, even though `true` genuinely exited 0 against the
+// current fingerprint.
+func TestIntegration_ForgedCommandCannotSatisfyRequiredCheck(t *testing.T) {
+	dir := newTestRepo(t)
+
+	fp := currentFingerprint(t, dir)
+	r := New()
+	r.Set("test", NewResult([]string{"true"}, 0, time.Now(), 0, fp))
+
+	eval := EvaluateAgainstCommand(r, "test", currentFingerprint(t, dir), "go test ./...")
+	if eval.Status == Pass {
+		t.Fatal("forged command (`true` instead of the configured `go test ./...`) was reported as PASS")
+	}
+	if eval.Status != NotRun {
+		t.Fatalf("Status = %q, want %q", eval.Status, NotRun)
+	}
+}
+
 func TestIntegration_NoCommitsYet(t *testing.T) {
 	dir := t.TempDir()
 	cmd := exec.Command("git", "init")

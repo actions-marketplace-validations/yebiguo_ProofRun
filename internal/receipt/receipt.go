@@ -13,8 +13,10 @@ package receipt
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -158,6 +160,10 @@ type Evaluation struct {
 	Name   string
 	Status EvaluatedStatus
 	Stored *CheckResult
+	// Note is an optional human-readable explanation for cases where
+	// Status/Stored alone don't say why — e.g. why a stored result wasn't
+	// accepted as evidence for this check. It is not a fifth status.
+	Note string
 }
 
 // Evaluate compares the receipt's stored result for name (if any) against
@@ -180,4 +186,34 @@ func Evaluate(r *Receipt, name string, current Fingerprint) Evaluation {
 		return Evaluation{Name: name, Status: Pass, Stored: &stored}
 	}
 	return Evaluation{Name: name, Status: Fail, Stored: &stored}
+}
+
+// EvaluateAgainstCommand is Evaluate, plus one more requirement: when
+// expectedCommand is non-empty (the check is declared in .proofrun.yml with
+// a specific command), the stored result's actual command must match it
+// exactly, compared as a single space-joined string.
+//
+// This closes a real gap: `proofrun run <name> -- <cmd>` lets the caller
+// pass any command on the CLI, so without this check `proofrun run test --
+// true` would satisfy a check declared in config as `test: go test ./...`
+// — a zero-cost forged PASS that `status --strict` would happily treat as
+// the real thing. A stored result for the wrong command is not evidence
+// about the right one, so a mismatch can only ever report NOT RUN — never
+// PASS or FAIL, even if the wrong command happened to exit non-zero. That
+// mirrors the project's rule of reporting conservatively rather than
+// manufacturing false certainty in either direction.
+func EvaluateAgainstCommand(r *Receipt, name string, current Fingerprint, expectedCommand string) Evaluation {
+	eval := Evaluate(r, name, current)
+	if expectedCommand == "" || eval.Stored == nil {
+		return eval
+	}
+	actual := strings.Join(eval.Stored.Command, " ")
+	if actual != expectedCommand {
+		return Evaluation{
+			Name:   name,
+			Status: NotRun,
+			Note:   fmt.Sprintf("last recorded run used %q, but .proofrun.yml declares %q", actual, expectedCommand),
+		}
+	}
+	return eval
 }

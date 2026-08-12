@@ -2,9 +2,13 @@
 
 > ProofRun is a local verification receipt for AI coding agents — it doesn't judge whether code is correct, it only proves which checks actually ran against the exact code you have right now.
 
+> **Repo status:** this repository is currently private (per plan: private during initial development, public once stable), so the install command below only works for someone with repo access — e.g. `gh release download` after `gh auth login`, or via a browser session. It will work as a plain anonymous `curl` once the repo goes public. Also note: v0.1.0-alpha is a prerelease, so GitHub's `/releases/latest` alias won't resolve to it — pin the tag explicitly, as below, until a non-prerelease build exists.
+
 ```bash
-# install (see Releases for other platforms)
-curl -L https://github.com/yebiguo/proofrun/releases/latest/download/proofrun_linux_amd64.tar.gz | tar xz
+# install (see https://github.com/yebiguo/proofrun/releases for other platforms)
+gh release download v0.1.0-alpha --repo yebiguo/proofrun --pattern "proofrun_linux_amd64.tar.gz" -O - | tar xz
+# or, once this repo is public:
+# curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0-alpha/proofrun_linux_amd64.tar.gz | tar xz
 
 # use
 proofrun init                    # writes .proofrun.yml

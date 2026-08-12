@@ -17,6 +17,7 @@ type Check struct {
 	Name       string     `json:"name"`
 	Status     string     `json:"status"`
 	Required   bool       `json:"required"`
+	Note       string     `json:"note,omitempty"`
 	Command    []string   `json:"command,omitempty"`
 	ExitCode   *int       `json:"exit_code,omitempty"`
 	DurationMS *int64     `json:"duration_ms,omitempty"`
@@ -39,6 +40,7 @@ func Build(evals []receipt.Evaluation, required map[string]bool) Report {
 			Name:     e.Name,
 			Status:   string(e.Status),
 			Required: required[e.Name],
+			Note:     e.Note,
 		}
 		if e.Stored != nil {
 			c.Command = e.Stored.Command
@@ -72,6 +74,9 @@ func (r Report) Terminal() string {
 			req = " (required)"
 		}
 		fmt.Fprintf(&b, "%-20s %-8s%s\n", c.Name, c.Status, req)
+		if c.Note != "" {
+			fmt.Fprintf(&b, "%-20s   %s\n", "", c.Note)
+		}
 		if c.ExitCode != nil {
 			fmt.Fprintf(&b, "%-20s   command: %s | exit: %d | duration: %dms | ran at: %s\n",
 				"", strings.Join(c.Command, " "), *c.ExitCode, *c.DurationMS, c.StartedAt.Format(time.RFC3339))
