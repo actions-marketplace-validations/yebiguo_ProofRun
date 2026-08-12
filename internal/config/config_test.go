@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -61,5 +63,52 @@ func TestLoad_EmptyChecksSection(t *testing.T) {
 	}
 	if loaded.Checks == nil {
 		t.Fatal("Load() left Checks nil for an empty checks section")
+	}
+}
+
+// TestLoad_RejectsEmptyCommand guards against a real forged-PASS hole:
+// without this rejection, a check declared with `command: ""` and
+// `required: true` is indistinguishable downstream from "not declared at
+// all", which lets any zero-exit command satisfy it under
+// `status --strict`. See internal/receipt.EvaluateAgainstCommand, which
+// relies on Load() having already ruled this out.
+func TestLoad_RejectsEmptyCommand(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "checks:\n  test:\n    command: \"\"\n    required: true\n"
+	if err := os.WriteFile(Path(dir), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(dir); err == nil {
+		t.Fatal("Load() error = nil, want an error for a check with an empty command")
+	}
+}
+
+func TestLoad_RejectsWhitespaceOnlyCommand(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "checks:\n  test:\n    command: \"   \"\n    required: true\n"
+	if err := os.WriteFile(Path(dir), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(dir); err == nil {
+		t.Fatal("Load() error = nil, want an error for a whitespace-only command")
+	}
+}
+
+func TestLoad_AcceptsNonEmptyCommands(t *testing.T) {
+	dir := t.TempDir()
+	if err := Default().Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(dir); err != nil {
+		t.Fatalf("Load() unexpectedly failed on a valid default config: %v", err)
+	}
+}
+
+func TestPath(t *testing.T) {
+	dir := t.TempDir()
+	if got, want := Path(dir), filepath.Join(dir, FileName); got != want {
+		t.Fatalf("Path() = %q, want %q", got, want)
 	}
 }

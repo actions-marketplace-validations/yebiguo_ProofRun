@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -49,7 +51,14 @@ func Exists(dir string) bool {
 	return err == nil
 }
 
-// Load reads and parses the config file in dir.
+// Load reads and parses the config file in dir. A check declared with an
+// empty (or whitespace-only) command is rejected outright, rather than
+// silently accepted: downstream, "this check is declared in config but has
+// no command to compare against" is indistinguishable from "this check
+// isn't declared at all" for the purposes of validating that a recorded
+// result actually ran the right thing — so an empty command here would
+// let any zero-exit command satisfy a `required: true` check. Better to
+// fail loudly at load time than let that gap through silently.
 func Load(dir string) (*Config, error) {
 	data, err := os.ReadFile(Path(dir))
 	if err != nil {
@@ -62,6 +71,18 @@ func Load(dir string) (*Config, error) {
 	if cfg.Checks == nil {
 		cfg.Checks = map[string]Check{}
 	}
+
+	var empty []string
+	for name, check := range cfg.Checks {
+		if strings.TrimSpace(check.Command) == "" {
+			empty = append(empty, name)
+		}
+	}
+	if len(empty) > 0 {
+		sort.Strings(empty)
+		return nil, fmt.Errorf("%s: check(s) with an empty command: %s", FileName, strings.Join(empty, ", "))
+	}
+
 	return &cfg, nil
 }
 
