@@ -1,0 +1,117 @@
+name: 'ProofRun Verify'
+description: >
+  Independently re-runs every check declared in .proofrun.yml against the
+  exact PR head commit. Never trusts a receipt.json checked out from the
+  PR branch. Known limitation: this does not protect .proofrun.yml itself
+  from being weakened by the same PR that changes the code — it only
+  warns, it does not block. See the ProofRun README's "Known limitations"
+  section before relying on this for anything security-sensitive.
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout exact PR head (authoritative — not delegated to the caller)
+      # This action performs its own checkout rather than trusting whatever
+      # the calling workflow already checked out. A version that only
+      # *validated* the caller's checkout could correctly catch the most
+      # common mistake (forgetting to pin `ref:` to the PR head, which
+      # defaults to GitHub's synthetic merge-preview commit on
+      # `pull_request` events) — but the fix for that failure is exactly
+      # the wrong instinct: delete the validation step to make the error
+      # go away. Doing the checkout here removes the whole failure class
+      # instead of documenting around it.
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        fetch-depth: 0 # need base ref history for the .proofrun.yml diff step below
+
+    - name: Assert checked-out HEAD is really the PR head, not a merge preview
+      shell: bash
+      run: |
+        actual="$(git rev-parse HEAD)"
+        expected="${{ github.event.pull_request.head.sha }}"
+        if [ -n "$expected" ] && [ "$actual" != "$expected" ]; then
+          echo "::error::checked out HEAD ($actual) does not match the PR head sha ($expected). This should be unreachable given this action's own checkout step above — please open an issue at https://github.com/yebiguo/proofrun/issues rather than removing this check."
+          exit 1
+        fi
+
+    - name: Warn if .proofrun.yml itself changed relative to the base branch
+      shell: bash
+      run: |
+        base="${{ github.event.pull_request.base.sha }}"
+        # `if` conditions are exempt from bash's `set -e` (on by default in
+        # GitHub Actions bash steps) — `git diff --quiet` exiting 1 here
+        # means "a difference was found", the case we want to act on, not
+        # a script failure to abort on.
+        if [ -n "$base" ] && ! git diff --quiet "$base" HEAD -- .proofrun.yml 2>/dev/null; then
+          echo "::warning::.proofrun.yml differs from the base branch in this PR. ProofRun re-runs whatever the check declarations say to run — it proves the declared checks really executed, but this version does not protect the declarations themselves from being weakened by the same PR that changes the code. Review this diff like you would any other part of the change."
+        fi
+
+    - name: Download proofrun
+      shell: bash
+      run: |
+        set -e
+        case "${{ runner.os }}" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          Windows) os=windows ;;
+          *) echo "::error::unsupported runner.os: ${{ runner.os }}"; exit 1 ;;
+        esac
+        case "${{ runner.arch }}" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::unsupported runner.arch: ${{ runner.arch }}"; exit 1 ;;
+        esac
+
+        ext=tar.gz
+        if [ "$os" = "windows" ]; then ext=zip; fi
+        archive="proofrun_${os}_${arch}.${ext}"
+        base_url="https://github.com/yebiguo/proofrun/releases/download/v1"
+
+        workdir="${RUNNER_TEMP}/proofrun-install"
+        mkdir -p "$workdir"
+        curl -fsSL -o "$workdir/$archive" "$base_url/$archive"
+        curl -fsSL -o "$workdir/checksums.txt" "$base_url/checksums.txt"
+
+        expected_sum="$(grep " ${archive}\$" "$workdir/checksums.txt" | awk '{print $1}')"
+        if [ -z "$expected_sum" ]; then
+          echo "::error::no checksum entry for $archive in checksums.txt — refusing to use an unverifiable download"
+          exit 1
+        fi
+
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual_sum="$(sha256sum "$workdir/$archive" | awk '{print $1}')"
+        elif command -v shasum >/dev/null 2>&1; then
+          actual_sum="$(shasum -a 256 "$workdir/$archive" | awk '{print $1}')"
+        else
+          actual_sum="$(openssl dgst -sha256 "$workdir/$archive" | awk '{print $NF}')"
+        fi
+        if [ "$expected_sum" != "$actual_sum" ]; then
+          echo "::error::checksum mismatch for $archive: expected $expected_sum, got $actual_sum — refusing to run a download that doesn't match the published checksum"
+          exit 1
+        fi
+
+        if [ "$ext" = "zip" ]; then
+          if command -v unzip >/dev/null 2>&1; then
+            unzip -q "$workdir/$archive" -d "$workdir"
+          else
+            tar xf "$workdir/$archive" -C "$workdir"
+          fi
+        else
+          tar xzf "$workdir/$archive" -C "$workdir"
+        fi
+
+        chmod +x "$workdir/proofrun" 2>/dev/null || true
+        echo "$workdir" >> "$GITHUB_PATH"
+
+    - name: Clear any existing local receipt — never trust one checked out from the PR branch
+      shell: bash
+      run: rm -rf .proofrun/
+
+    - name: Re-run every declared check for real
+      shell: bash
+      continue-on-error: true # let the strict-mode step below produce the final, cleanly-reported gate
+      run: proofrun run-all
+
+    - name: Gate on strict status
+      shell: bash
+      run: proofrun status --strict
