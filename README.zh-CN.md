@@ -48,7 +48,7 @@ test                 STALE   (last run: pass, exit 0 — code changed since)
 ## 安装
 
 ```bash
-curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0-alpha/proofrun_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0/proofrun_linux_amd64.tar.gz | tar xz
 # 其他平台见 https://github.com/yebiguo/proofrun/releases
 ```
 
