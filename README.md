@@ -1,24 +1,35 @@
+<div align="center">
+
 # ProofRun
 
-> ProofRun is a local verification receipt for AI coding agents — it doesn't judge whether code is correct, it only proves which checks actually ran against the exact code you have right now.
+**A local verification receipt for AI coding agents.**
 
-> **Repo status:** this repository is currently private (per plan: private during initial development, public once stable), so the install command below only works for someone with repo access — e.g. `gh release download` after `gh auth login`, or via a browser session. It will work as a plain anonymous `curl` once the repo goes public. Also note: v0.1.0-alpha is a prerelease, so GitHub's `/releases/latest` alias won't resolve to it — pin the tag explicitly, as below, until a non-prerelease build exists.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go 1.22+](https://img.shields.io/badge/go-1.22%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+[![CI](https://github.com/yebiguo/proofrun/actions/workflows/test.yml/badge.svg)](https://github.com/yebiguo/proofrun/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/yebiguo/proofrun?include_prereleases&label=release)](https://github.com/yebiguo/proofrun/releases)
+
+[English](README.md) · [简体中文](README.zh-CN.md)
+
+</div>
+
+---
+
+![ProofRun: run a check, it PASSes, edit the code, it goes STALE automatically](docs/demo.gif)
+
+ProofRun doesn't judge whether your code is correct. It proves — cryptographically, not by asking nicely — which checks actually ran against the exact code you have right now.
+
+## The problem
+
+An AI coding agent says "all tests pass." Is that true?
+
+Maybe. It was true the last time the agent actually ran the tests. But that might have been three edits ago. The agent might not even remember running them — it might just be inferring "the change looks right, tests probably still pass." From the words alone, you have no way to tell "I ran it and it passed" apart from "I'm pretty sure it would pass."
+
+ProofRun closes that gap. Not by making the agent more honest — by making the claim itself checkable.
+
+## How it works
 
 ```bash
-# install (see https://github.com/yebiguo/proofrun/releases for other platforms)
-gh release download v0.1.0-alpha --repo yebiguo/proofrun --pattern "proofrun_linux_amd64.tar.gz" -O - | tar xz
-# or, once this repo is public:
-# curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0-alpha/proofrun_linux_amd64.tar.gz | tar xz
-
-# use
-proofrun init                    # writes .proofrun.yml
-proofrun run test -- pytest      # actually executes pytest, binds the result to your current code
-proofrun status                  # PASS / FAIL / STALE / NOT RUN, per check
-```
-
-**An AI coding agent saying "all tests pass" is a claim, not a fact.** By the time it says that sentence — especially after several more rounds of edits — the code may no longer be the code that was tested, and the agent often doesn't know it. ProofRun doesn't try to judge whether the code is *good*. It answers one narrower, verifiable question: **did a check command actually run, against the exact code that exists right now?**
-
-```
 $ proofrun run test -- pytest
 ...
 test: pass (exit 0, 1841ms)
@@ -26,28 +37,59 @@ test: pass (exit 0, 1841ms)
 $ proofrun status
 test                 PASS    (exit 0, 1841ms)
 
-# an agent edits a file after this point, without re-running the test
+# code changes after this point — agent or human, doesn't matter
 
 $ proofrun status
 test                 STALE   (last run: pass, exit 0 — code changed since)
 ```
 
-That's the whole trick: a check's result is cryptographically bound to your git HEAD and working-tree diff at the moment it ran. Change one byte of tracked or untracked code afterward, and the result flips to `STALE` automatically — no one has to remember to ask "is this still valid?"
+Every check result is bound to a fingerprint of your exact code state: the git commit, plus a hash of everything uncommitted — staged or not, tracked or not. Change a single byte, and the result flips to `STALE` automatically. Nobody has to remember to ask "does this PASS still count?"
+
+## Install
+
+```bash
+curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0-alpha/proofrun_linux_amd64.tar.gz | tar xz
+# other platforms: https://github.com/yebiguo/proofrun/releases
+```
+
+Or build from source:
+
+```bash
+go install github.com/yebiguo/proofrun/cmd/proofrun@latest
+```
+
+## Quick start
+
+```bash
+proofrun init                      # writes .proofrun.yml
+proofrun run test -- pytest        # runs pytest for real, binds the result
+proofrun status --strict           # non-zero exit if anything isn't PASS
+```
 
 ## Why this, not just trusting the agent
 
-- **No LLM calls, anywhere.** ProofRun doesn't use AI to verify AI. It runs a real subprocess and reads its real exit code — that's it.
-- **Only four statuses, and none of them are a guess:** `PASS`, `FAIL`, `STALE`, `NOT RUN`. Every one of them comes from either an observed execution or the documented absence of one. There is no fifth "probably fine" status.
-- **Fully offline.** Zero network requests, zero telemetry, zero accounts.
+- **No LLM calls, anywhere.** ProofRun doesn't use AI to verify AI. It starts a real subprocess and reads its real exit code — that's the entire mechanism.
+- **Four statuses, never a guess.** `PASS`, `FAIL`, `STALE`, `NOT RUN` — each one comes from an observed execution, or the documented absence of one. There's no fifth "probably fine."
+- **Fully offline.** Zero network calls, zero telemetry, zero accounts.
+- **Argv-exact, not string-matched.** A check declared as `pytest -k "foo bar"` can't be satisfied by a command that merely looks similar once flattened to text — ProofRun compares real argument arrays, not strings.
+
+## What ProofRun deliberately does not do
+
+It does not parse test output, does not judge code quality, does not auto-fix anything, and doesn't run in CI yet (a GitHub Action is planned — one that re-verifies independently rather than trusting a receipt generated on someone's laptop, since a locally generated receipt isn't something a server should trust as-is). See [AGENTS.md](AGENTS.md) for the complete boundary.
+
+## Built by an AI agent, held accountable by one
+
+ProofRun was written by an AI coding agent (Claude Code) under human direction, then went through several rounds of independent, read-only adversarial review before the first release. That review found that ProofRun's own command comparison could be tricked: a misquoted shell argument made a check silently run zero tests and still report `PASS`. Full repro, the exact fix, and why a simple patch wasn't enough → [docs/case-study.md](docs/case-study.md).
+
+Every fix was verified against a real reproduction before being accepted — not just reviewed for plausibility. A tool built to hold AI agents accountable has no business existing if it can't survive that same scrutiny applied to itself.
 
 ## Commands
 
 ```bash
-proofrun init                      # generate .proofrun.yml in the current directory
-proofrun run <check-name> -- <cmd> # run <cmd> for real, record exit code + duration bound to current git state
-proofrun status [--strict]         # show status of every check; --strict exits non-zero if any required check isn't PASS
-proofrun report [--json]           # human-readable or machine-readable full report
-proofrun --version                 # print the build's version, commit, and date
+proofrun init                      # generate .proofrun.yml
+proofrun run <check-name> -- <cmd> # run <cmd> for real, bind exit code + duration to current git state
+proofrun status [--strict]         # PASS / FAIL / STALE / NOT RUN per check; --strict exits non-zero if a required check isn't PASS
+proofrun report [--json]           # full report, human- or machine-readable
 ```
 
 ## Config: `.proofrun.yml`
@@ -65,17 +107,21 @@ checks:
     required: false
 ```
 
-`required: true` is what makes a check block `proofrun status --strict` — useful as a pre-commit hook or CI gate that refuses to trust a receipt an agent (or a human) claims but never actually re-ran.
-
-`command` is a list of the exact arguments, not a shell-style string — `proofrun` never goes through a shell, and comparing an executed command against what's declared here has to be exact. A single string would have to be flattened to compare, and flattening is lossy: `[go, test, -run, TestCritical, ./...]` and `[go, test, -run, "TestCritical ./..."]` are different commands (the second matches zero tests) but look identical once joined into a string — exactly the kind of gap this tool exists to close, so it isn't allowed to open one itself.
-
-## What ProofRun does not do (on purpose)
-
-It does not parse test output, does not judge code quality, does not auto-fix anything, does not call any LLM, and does not run in CI yet (a v0.2 GitHub Action is planned, which will re-run checks itself rather than trusting a receipt generated on someone's laptop). See [AGENTS.md](AGENTS.md) for the full list of what's deliberately out of scope for v0.1.
+`command` is an argv list, not a shell string — ProofRun never goes through a shell, and comparing what actually ran against what's declared has to be exact, element for element. `required: true` is what makes a check block `status --strict`, which is what you'd wire into a pre-commit hook or CI gate.
 
 ## How the fingerprint works
 
-Every check result is bound to a `Fingerprint`: your current git `HEAD` commit, plus a SHA-256 hash of `git diff HEAD` (staged and unstaged changes to tracked files) combined with the contents of any untracked, non-gitignored files. `proofrun status` recomputes that fingerprint on every run and compares it against what's stored in `.proofrun/receipt.json` (a local, gitignored file) — any mismatch, down to a single changed space or one new file, is reported as `STALE`.
+Every result is bound to your current git `HEAD` plus a SHA-256 hash of `git diff HEAD` combined with the contents of any untracked, non-ignored files. `proofrun status` recomputes that fingerprint every time and compares it against what's stored locally — any mismatch, down to a single changed space or one new file, reports `STALE`.
+
+## Roadmap
+
+- **v0.2** — a GitHub Action that re-verifies independently, instead of trusting a receipt generated on someone's laptop
+- **v0.3** — structured output support for common test runners (pytest, Jest, JUnit)
+- Signed, tamper-evident receipts are on the radar, not yet designed
+
+## Contributing
+
+Issues and PRs welcome. This is a young project (v0.1) with a narrow, deliberate scope — see [AGENTS.md](AGENTS.md) before proposing anything that touches STALE detection or the receipt schema; those are the parts this project can least afford to get wrong.
 
 ## License
 
