@@ -72,7 +72,11 @@ runs:
         curl -fsSL -o "$workdir/$archive" "$base_url/$archive"
         curl -fsSL -o "$workdir/checksums.txt" "$base_url/checksums.txt"
 
-        expected_sum="$(grep " ${archive}\$" "$workdir/checksums.txt" | awk '{print $1}')"
+        # tr -d '\r' guards against a checksums.txt with CRLF line endings
+        # (e.g. hand-built/re-uploaded from a Windows machine) silently
+        # failing to match here — the trailing \r would sit between the
+        # filename and grep's end-of-line anchor.
+        expected_sum="$(tr -d '\r' < "$workdir/checksums.txt" | grep " ${archive}\$" | awk '{print $1}')"
         if [ -z "$expected_sum" ]; then
           echo "::error::no checksum entry for $archive in checksums.txt — refusing to use an unverifiable download"
           exit 1
