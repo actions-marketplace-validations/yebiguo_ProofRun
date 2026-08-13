@@ -89,6 +89,11 @@ runs:
         else
           actual_sum="$(openssl dgst -sha256 "$workdir/$archive" | awk '{print $NF}')"
         fi
+        # sha256sum/shasum prepend a literal backslash to the whole output
+        # line (not just the filename) when the path contains a backslash —
+        # e.g. RUNNER_TEMP on Windows runners mixes \ and / separators. That
+        # marker ends up as part of $1 too, corrupting the naive awk parse.
+        actual_sum="${actual_sum#\\}"
         if [ "$expected_sum" != "$actual_sum" ]; then
           echo "::error::checksum mismatch for $archive: expected $expected_sum, got $actual_sum — refusing to run a download that doesn't match the published checksum"
           exit 1
