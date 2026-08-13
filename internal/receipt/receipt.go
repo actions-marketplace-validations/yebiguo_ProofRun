@@ -13,8 +13,10 @@ package receipt
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -158,6 +160,10 @@ type Evaluation struct {
 	Name   string
 	Status EvaluatedStatus
 	Stored *CheckResult
+	// Note is an optional human-readable explanation for cases where
+	// Status/Stored alone don't say why — e.g. why a stored result wasn't
+	// accepted as evidence for this check. It is not a fifth status.
+	Note string
 }
 
 // Evaluate compares the receipt's stored result for name (if any) against
@@ -180,4 +186,40 @@ func Evaluate(r *Receipt, name string, current Fingerprint) Evaluation {
 		return Evaluation{Name: name, Status: Pass, Stored: &stored}
 	}
 	return Evaluation{Name: name, Status: Fail, Stored: &stored}
+}
+
+// EvaluateAgainstCommand is Evaluate, plus one more requirement: when
+// expectedCommand is non-empty (the check is declared in .proofrun.yml with
+// a specific command), the stored result's actual argv must equal it
+// element-for-element.
+//
+// This closes a real gap: `proofrun run <name> -- <cmd>` lets the caller
+// pass any command on the CLI, so without this check `proofrun run test --
+// true` would satisfy a check declared in config as `test: go test ./...`
+// — a zero-cost forged PASS that `status --strict` would happily treat as
+// the real thing. A stored result for the wrong command is not evidence
+// about the right one, so a mismatch can only ever report NOT RUN — never
+// PASS or FAIL, even if the wrong command happened to exit non-zero.
+//
+// The comparison is element-for-element, never a joined/flattened string:
+// joining is lossy. []string{"go","test","-run","TestCritical","./..."}
+// and []string{"go","test","-run","TestCritical ./..."} are genuinely
+// different commands (the second matches zero tests and exits 0 in most
+// repos) but join to the identical string "go test -run TestCritical
+// ./..." — a real false-PASS path if comparison ever flattens either side
+// first. See internal/config.Check.Command's doc comment for the same
+// reasoning from the config side.
+func EvaluateAgainstCommand(r *Receipt, name string, current Fingerprint, expectedCommand []string) Evaluation {
+	eval := Evaluate(r, name, current)
+	if len(expectedCommand) == 0 || eval.Stored == nil {
+		return eval
+	}
+	if !slices.Equal(eval.Stored.Command, expectedCommand) {
+		return Evaluation{
+			Name:   name,
+			Status: NotRun,
+			Note:   fmt.Sprintf("last recorded run used %q, but .proofrun.yml declares %q", eval.Stored.Command, expectedCommand),
+		}
+	}
+	return eval
 }

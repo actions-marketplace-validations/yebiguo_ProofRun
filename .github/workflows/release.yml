@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+
+jobs:
+  # A pushed tag can point at any commit, whether or not that commit ever
+  # went through test.yml's ubuntu/macos/windows matrix — so the release
+  # gates on running that same matrix itself, not just a single-OS check.
+  # This matters concretely here: tree_windows.go and tree_unix.go are
+  # platform-specific process-tree-kill implementations that only get
+  # exercised on their respective OS.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Configure git identity for tests
+        run: |
+          git config --global user.email "ci@proofrun.dev"
+          git config --global user.name "ProofRun CI"
+
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./... -v
+
+  goreleaser:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

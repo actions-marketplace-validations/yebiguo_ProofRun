@@ -1,0 +1,10 @@
+checks:
+  test:
+    command: [go, test, ./...]
+    required: true
+  build:
+    command: [go, build, ./...]
+    required: true
+  vet:
+    command: [go, vet, ./...]
+    required: false

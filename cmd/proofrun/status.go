@@ -80,6 +80,7 @@ func evaluateAll(dir string) ([]receipt.Evaluation, map[string]bool, error) {
 
 	names := map[string]bool{}
 	required := map[string]bool{}
+	expectedCommand := map[string][]string{}
 	if config.Exists(dir) {
 		cfg, err := config.Load(dir)
 		if err != nil {
@@ -88,6 +89,7 @@ func evaluateAll(dir string) ([]receipt.Evaluation, map[string]bool, error) {
 		for name, check := range cfg.Checks {
 			names[name] = true
 			required[name] = check.Required
+			expectedCommand[name] = check.Command
 		}
 	}
 	for name := range r.Checks {
@@ -100,9 +102,14 @@ func evaluateAll(dir string) ([]receipt.Evaluation, map[string]bool, error) {
 	}
 	sort.Strings(sorted)
 
+	// EvaluateAgainstCommand (not the plainer Evaluate) matters here: a
+	// check declared in .proofrun.yml with a specific command must never
+	// read as PASS/FAIL from a receipt recorded for some other command —
+	// e.g. `proofrun run test -- true` satisfying a config that declares
+	// `test: go test ./...`. See internal/receipt.EvaluateAgainstCommand.
 	evals := make([]receipt.Evaluation, 0, len(sorted))
 	for _, name := range sorted {
-		evals = append(evals, receipt.Evaluate(r, name, current))
+		evals = append(evals, receipt.EvaluateAgainstCommand(r, name, current, expectedCommand[name]))
 	}
 	return evals, required, nil
 }
@@ -116,6 +123,9 @@ func formatStatus(e receipt.Evaluation) string {
 	case receipt.Stale:
 		return fmt.Sprintf("STALE   (last run: %s, exit %d — code changed since)", e.Stored.Status, e.Stored.ExitCode)
 	default:
+		if e.Note != "" {
+			return fmt.Sprintf("NOT RUN (%s)", e.Note)
+		}
 		return "NOT RUN"
 	}
 }
