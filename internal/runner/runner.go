@@ -45,10 +45,10 @@ func Run(ctx context.Context, dir string, command []string, timeout time.Duratio
 	cmd.Dir = dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	setProcessGroup(cmd)
-	cmd.Cancel = func() error { return killTree(cmd.Process) }
+	SetProcessGroup(cmd)
+	cmd.Cancel = func() error { return KillTree(cmd.Process) }
 	// Bounds how long Wait can block after cancellation if some descendant
-	// process still holds a stdout/stderr pipe open despite killTree; past
+	// process still holds a stdout/stderr pipe open despite KillTree; past
 	// this, os/exec forcibly closes the pipes so Wait returns.
 	cmd.WaitDelay = 5 * time.Second
 
