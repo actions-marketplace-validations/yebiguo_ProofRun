@@ -80,7 +80,7 @@ func evaluateAll(dir string) ([]receipt.Evaluation, map[string]bool, error) {
 
 	names := map[string]bool{}
 	required := map[string]bool{}
-	expectedCommand := map[string]string{}
+	expectedCommand := map[string][]string{}
 	if config.Exists(dir) {
 		cfg, err := config.Load(dir)
 		if err != nil {

@@ -55,17 +55,19 @@ proofrun --version                 # print the build's version, commit, and date
 ```yaml
 checks:
   test:
-    command: pytest
+    command: [pytest]
     required: true
   build:
-    command: npm run build
+    command: [npm, run, build]
     required: true
   lint:
-    command: ruff check .
+    command: [ruff, check, .]
     required: false
 ```
 
 `required: true` is what makes a check block `proofrun status --strict` — useful as a pre-commit hook or CI gate that refuses to trust a receipt an agent (or a human) claims but never actually re-ran.
+
+`command` is a list of the exact arguments, not a shell-style string — `proofrun` never goes through a shell, and comparing an executed command against what's declared here has to be exact. A single string would have to be flattened to compare, and flattening is lossy: `[go, test, -run, TestCritical, ./...]` and `[go, test, -run, "TestCritical ./..."]` are different commands (the second matches zero tests) but look identical once joined into a string — exactly the kind of gap this tool exists to close, so it isn't allowed to open one itself.
 
 ## What ProofRun does not do (on purpose)
 

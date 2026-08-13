@@ -137,7 +137,7 @@ func TestIntegration_ForgedCommandCannotSatisfyRequiredCheck(t *testing.T) {
 	r := New()
 	r.Set("test", NewResult([]string{"true"}, 0, time.Now(), 0, fp))
 
-	eval := EvaluateAgainstCommand(r, "test", currentFingerprint(t, dir), "go test ./...")
+	eval := EvaluateAgainstCommand(r, "test", currentFingerprint(t, dir), []string{"go", "test", "./..."})
 	if eval.Status == Pass {
 		t.Fatal("forged command (`true` instead of the configured `go test ./...`) was reported as PASS")
 	}

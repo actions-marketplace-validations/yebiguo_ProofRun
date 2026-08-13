@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -37,7 +38,7 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 		if !ok {
 			t.Fatalf("loaded config missing check %q", name)
 		}
-		if got.Command != check.Command || got.Required != check.Required {
+		if !slices.Equal(got.Command, check.Command) || got.Required != check.Required {
 			t.Fatalf("check %q = %+v, want %+v", name, got, check)
 		}
 	}
@@ -67,32 +68,61 @@ func TestLoad_EmptyChecksSection(t *testing.T) {
 }
 
 // TestLoad_RejectsEmptyCommand guards against a real forged-PASS hole:
-// without this rejection, a check declared with `command: ""` and
+// without this rejection, a check declared with an empty command and
 // `required: true` is indistinguishable downstream from "not declared at
 // all", which lets any zero-exit command satisfy it under
 // `status --strict`. See internal/receipt.EvaluateAgainstCommand, which
 // relies on Load() having already ruled this out.
 func TestLoad_RejectsEmptyCommand(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "checks:\n  test:\n    command: \"\"\n    required: true\n"
+	yaml := "checks:\n  test:\n    command: []\n    required: true\n"
 	if err := os.WriteFile(Path(dir), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := Load(dir); err == nil {
-		t.Fatal("Load() error = nil, want an error for a check with an empty command")
+		t.Fatal("Load() error = nil, want an error for a check with an empty command list")
+	}
+}
+
+func TestLoad_RejectsMissingCommand(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "checks:\n  test:\n    required: true\n"
+	if err := os.WriteFile(Path(dir), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(dir); err == nil {
+		t.Fatal("Load() error = nil, want an error for a check with no command key at all")
 	}
 }
 
 func TestLoad_RejectsWhitespaceOnlyCommand(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "checks:\n  test:\n    command: \"   \"\n    required: true\n"
+	yaml := "checks:\n  test:\n    command: [\"   \"]\n    required: true\n"
 	if err := os.WriteFile(Path(dir), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := Load(dir); err == nil {
-		t.Fatal("Load() error = nil, want an error for a whitespace-only command")
+		t.Fatal("Load() error = nil, want an error for a whitespace-only command element")
+	}
+}
+
+// TestLoad_RejectsOldStringFormat documents an intentional breaking
+// change: command used to be a single shell-style string, which made
+// argv-identity comparisons lossy (see Check's doc comment). Pre-1.0,
+// private repo, no external consumers yet — this is the right time to fix
+// the schema, not patch around it.
+func TestLoad_RejectsOldStringFormat(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "checks:\n  test:\n    command: pytest\n    required: true\n"
+	if err := os.WriteFile(Path(dir), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(dir); err == nil {
+		t.Fatal("Load() error = nil, want a YAML type error for the old single-string command format")
 	}
 }
 
