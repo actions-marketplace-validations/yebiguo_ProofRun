@@ -50,8 +50,13 @@ without asking first. This is a young, low-stakes, pre-1.0 project.
 - For anything touching STALE detection: manually verify by running a check, editing a
   tracked file, and confirming `proofrun status` reports STALE — don't rely on unit
   tests alone for this one.
+- Verify your own work with ProofRun itself, not just raw `go build`/`go test`/`go vet`:
+  build the binary from source and run `proofrun run-all` (or `proofrun run <name> --
+  <cmd>`) against this repo before calling a change done, so the receipt bound to the
+  current commit reflects what was actually verified. A tool whose own maintainers
+  don't dogfood it has no standing to ask anyone else to trust it.
 
-## Explicitly out of scope for v0.1 (do not add without a product decision)
+## Explicitly out of scope (do not add without a product decision)
 
 No INFERRED status, no parsing of test/build output content (exit code only), no
 signing/encryption/OIDC, no web UI, no full coding agent, no AI/LLM judging code

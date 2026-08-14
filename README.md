@@ -49,7 +49,7 @@ Every check result is bound to a fingerprint of your exact code state: the git c
 ## Install
 
 ```bash
-curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0/proofrun_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/yebiguo/proofrun/releases/download/v0.2.0/proofrun_linux_amd64.tar.gz | tar xz
 # other platforms: https://github.com/yebiguo/proofrun/releases
 ```
 
@@ -140,7 +140,7 @@ This does its own checkout of the exact PR head commit — it never trusts whate
 
 ## Contributing
 
-Issues and PRs welcome. This is a young project (v0.1) with a narrow, deliberate scope — see [AGENTS.md](AGENTS.md) before proposing anything that touches STALE detection or the receipt schema; those are the parts this project can least afford to get wrong.
+Issues and PRs welcome. This is a young, pre-1.0 project with a narrow, deliberate scope — see [AGENTS.md](AGENTS.md) before proposing anything that touches STALE detection or the receipt schema; those are the parts this project can least afford to get wrong.
 
 ## License
 

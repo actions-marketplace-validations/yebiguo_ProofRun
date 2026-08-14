@@ -49,7 +49,7 @@ test                 STALE   (last run: pass, exit 0 — code changed since)
 ## 安装
 
 ```bash
-curl -L https://github.com/yebiguo/proofrun/releases/download/v0.1.0/proofrun_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/yebiguo/proofrun/releases/download/v0.2.0/proofrun_linux_amd64.tar.gz | tar xz
 # 其他平台见 https://github.com/yebiguo/proofrun/releases
 ```
 
@@ -140,7 +140,7 @@ jobs:
 
 ## 参与贡献
 
-欢迎 Issue 和 PR。这还是一个年轻的项目（v0.1），范围收得很窄，而且是刻意收窄的——在提议任何涉及 STALE 判定逻辑或 receipt schema 的改动之前，先看一眼 [AGENTS.md](AGENTS.md)：这两块是这个项目最经不起出错的地方。
+欢迎 Issue 和 PR。这还是一个年轻的、1.0 之前的项目，范围收得很窄，而且是刻意收窄的——在提议任何涉及 STALE 判定逻辑或 receipt schema 的改动之前，先看一眼 [AGENTS.md](AGENTS.md)：这两块是这个项目最经不起出错的地方。
 
 ## 许可证
 
