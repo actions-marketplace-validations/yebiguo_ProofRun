@@ -91,7 +91,7 @@ runs:
         # Unreleased commits (main, a dev branch) keep the floating "v1"
         # default below, which is the right behavior for something nobody
         # should be pinning to in the first place.
-        pin_version="v1"
+        pin_version="v0.2.0"
         base_url="https://github.com/yebiguo/proofrun/releases/download/${pin_version}"
 
         workdir="${RUNNER_TEMP}/proofrun-install"
