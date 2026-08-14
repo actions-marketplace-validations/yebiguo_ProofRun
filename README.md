@@ -119,6 +119,8 @@ Every result is bound to your current git `HEAD` plus a SHA-256 hash of `git dif
 
 ```yaml
 on: pull_request
+permissions:
+  contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest

@@ -32,6 +32,13 @@ var statusCmd = &cobra.Command{
 		out := cmd.OutOrStdout()
 		if len(evals) == 0 {
 			fmt.Fprintln(out, "no checks found — run `proofrun init` and `proofrun run <name> -- <cmd>`")
+			// An empty check set trivially satisfies "nothing is failing" —
+			// under --strict that would silently gate on nothing, exactly
+			// the false-confidence failure mode this project exists to
+			// prevent. A missing/emptied .proofrun.yml must block, not pass.
+			if statusStrict {
+				os.Exit(1)
+			}
 			return nil
 		}
 

@@ -44,9 +44,16 @@ func (o CheckOutcome) Failed() bool {
 }
 
 // RunAll executes every check declared in .proofrun.yml — or only those
-// named in `only`, if `only` is non-empty — in alphabetical order, against
-// one fingerprint of the current git state computed once up front (so all
-// checks in the same run are bound to the identical commit+diff).
+// named in `only`, if `only` is non-empty — in alphabetical order. Each
+// check's result is bound to a fingerprint recomputed immediately before
+// that check runs, not one fingerprint shared across the whole pass: a
+// check can itself change the working tree (codegen, fixture setup, a
+// cleanup step), and the next check's command executes against whatever
+// state actually exists at that moment, not the state that existed when
+// RunAll started. Binding every check to a stale, pre-loop fingerprint
+// would let an out-of-band tree mutation between "compute fingerprint" and
+// "run the check" go completely unnoticed — recording a PASS against code
+// the check never actually saw.
 //
 // The receipt is saved to disk after each check completes, not batched
 // until the end: if the process is killed partway through (a CI job
@@ -89,16 +96,6 @@ func RunAll(ctx context.Context, dir string, timeout time.Duration, only map[str
 		return nil, fmt.Errorf("%s declares no checks — nothing to run", config.FileName)
 	}
 
-	head, err := git.Head(dir)
-	if err != nil {
-		return nil, err
-	}
-	diff, err := git.DiffFingerprint(dir, receipt.DirName)
-	if err != nil {
-		return nil, err
-	}
-	fp := receipt.Fingerprint{Head: head, DiffSHA256: diff}
-
 	r, err := receipt.Load(dir)
 	if err != nil {
 		return nil, fmt.Errorf("loading receipt: %w", err)
@@ -108,6 +105,11 @@ func RunAll(ctx context.Context, dir string, timeout time.Duration, only map[str
 	for _, name := range names {
 		check := cfg.Checks[name]
 		fmt.Fprintf(stdout, "\n=== %s: %s ===\n", name, strings.Join(check.Command, " "))
+
+		fp, err := currentFingerprint(dir)
+		if err != nil {
+			return outcomes, err
+		}
 
 		res, runErr := runner.Run(ctx, dir, check.Command, timeout, stdout, stderr)
 		switch {
@@ -132,4 +134,20 @@ func RunAll(ctx context.Context, dir string, timeout time.Duration, only map[str
 	}
 
 	return outcomes, nil
+}
+
+// currentFingerprint computes the fingerprint of dir's git state right now
+// — the same head+diff computation `proofrun status` uses to decide
+// PASS/STALE, called fresh immediately before each check runs rather than
+// once for the whole RunAll pass.
+func currentFingerprint(dir string) (receipt.Fingerprint, error) {
+	head, err := git.Head(dir)
+	if err != nil {
+		return receipt.Fingerprint{}, err
+	}
+	diff, err := git.DiffFingerprint(dir, receipt.DirName)
+	if err != nil {
+		return receipt.Fingerprint{}, err
+	}
+	return receipt.Fingerprint{Head: head, DiffSHA256: diff}, nil
 }

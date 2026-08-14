@@ -218,11 +218,29 @@ func TestRunAll_OnlyFilterMatchingNothingErrors(t *testing.T) {
 	}
 }
 
-func TestRunAll_AllChecksShareTheSameFingerprint(t *testing.T) {
+// TestRunAll_ChecksThatMutateTheTreeDontPoisonLaterOnes proves the fix for a
+// real false-PASS: a check earlier in the run (e.g. codegen, fixture setup)
+// can change the working tree before a later check runs. If every check in
+// the pass were bound to one fingerprint computed up front, a later check
+// that actually ran against the mutated tree would still be recorded (and
+// keep reading back as PASS) against the pre-mutation state — a stored
+// result for code the check never actually saw.
+func TestRunAll_ChecksThatMutateTheTreeDontPoisonLaterOnes(t *testing.T) {
 	dir := newTestRepo(t)
+
+	var mutate, restore []string
+	if runtime.GOOS == "windows" {
+		mutate = []string{"cmd", "/C", "echo mutated>>f.txt"}
+		restore = []string{"git", "checkout", "--", "f.txt"}
+	} else {
+		mutate = []string{"sh", "-c", "echo mutated >> f.txt"}
+		restore = []string{"git", "checkout", "--", "f.txt"}
+	}
+
 	writeConfig(t, dir, &config.Config{Checks: map[string]config.Check{
-		"a": {Command: exitCommand(0), Required: true},
-		"b": {Command: exitCommand(0), Required: true},
+		"a-mutate":  {Command: mutate, Required: true},
+		"b-observe": {Command: exitCommand(0), Required: true},
+		"c-restore": {Command: restore, Required: true},
 	}})
 
 	var stdout, stderr bytes.Buffer
@@ -234,8 +252,25 @@ func TestRunAll_AllChecksShareTheSameFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Checks["a"].VerifiedAgainst != r.Checks["b"].VerifiedAgainst {
-		t.Fatalf("checks in the same RunAll pass have different fingerprints: %+v vs %+v",
-			r.Checks["a"].VerifiedAgainst, r.Checks["b"].VerifiedAgainst)
+
+	// "a-mutate" ran before it changed the tree, and "b-observe" ran after
+	// — they must be bound to different fingerprints, not the same one.
+	if r.Checks["a-mutate"].VerifiedAgainst == r.Checks["b-observe"].VerifiedAgainst {
+		t.Fatalf("a-mutate and b-observe are bound to the same fingerprint, but the tree changed between them: %+v",
+			r.Checks["a-mutate"].VerifiedAgainst)
+	}
+
+	// By the time RunAll finished, "c-restore" had put the tree back to its
+	// original state — the same state "a-mutate" (but not "b-observe") ran
+	// against. Evaluating "b-observe" against the actual final tree state
+	// must report STALE, not PASS: its stored result is evidence about the
+	// mutated tree, not the tree that exists now.
+	finalFP, err := currentFingerprint(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eval := receipt.Evaluate(r, "b-observe", finalFP)
+	if eval.Status != receipt.Stale {
+		t.Fatalf("b-observe status = %v, want Stale (it ran against a tree state that no longer exists)", eval.Status)
 	}
 }
