@@ -50,8 +50,13 @@ without asking first. This is a young, low-stakes, pre-1.0 project.
 - For anything touching STALE detection: manually verify by running a check, editing a
   tracked file, and confirming `proofrun status` reports STALE — don't rely on unit
   tests alone for this one.
+- Verify your own work with ProofRun itself, not just raw `go build`/`go test`/`go vet`:
+  build the binary from source and run `proofrun run-all` (or `proofrun run <name> --
+  <cmd>`) against this repo before calling a change done, so the receipt bound to the
+  current commit reflects what was actually verified. A tool whose own maintainers
+  don't dogfood it has no standing to ask anyone else to trust it.
 
-## Explicitly out of scope for v0.1 (do not add without a product decision)
+## Explicitly out of scope (do not add without a product decision)
 
 No INFERRED status, no parsing of test/build output content (exit code only), no
 signing/encryption/OIDC, no web UI, no full coding agent, no AI/LLM judging code
@@ -74,12 +79,14 @@ into anything that looks like a guarantee it isn't; if `.proofrun.yml`-tampering
 protection is ever added, it needs its own product decision, not a quiet expansion
 of this warning's scope.
 
-**Release-prep step, required before tagging any real version (e.g. `v0.2.0`):**
-edit the `pin_version="v1"` literal in action.yml's "Download proofrun" step to the
-version being released (e.g. `pin_version="v0.2.0"`), commit that change, *then* tag
-the resulting commit. This makes the tagged commit self-consistent — pinning by that
-tag, by the floating `v1` tag (once release.yml's `float-tag` job moves it there), or
-by that commit's full SHA all resolve to identical action.yml content with the
-identical binary version baked in. Skipping this step means the release's action.yml
-still says `pin_version="v1"`, so it downloads whatever `v1` currently floats to
-instead of the version it was actually released with.
+**Release-prep step, required before tagging any real version (e.g. `v0.3.0`):** edit
+action.yml's "Download proofrun" step so its `pin_version="..."` literal reads exactly
+the version being released (e.g. `pin_version="v0.3.0"`), commit that change, *then* tag
+the resulting commit. Don't assume what the current value already says — check
+action.yml itself, since this step's whole point is that the value always changes at
+every release. This makes the tagged commit self-consistent — pinning by that tag, by
+the floating `v1` tag (once release.yml's `float-tag` job moves it there), or by that
+commit's full SHA all resolve to identical action.yml content with the identical binary
+version baked in. Skipping this step means the release's action.yml still says
+whatever version it last shipped with, so it downloads a binary that doesn't match the
+version it was actually released as.
