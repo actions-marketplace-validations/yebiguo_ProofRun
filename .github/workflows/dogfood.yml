@@ -1,0 +1,32 @@
+name: dogfood
+
+# Uses ProofRun's own action.yml against ProofRun's own PRs — the same
+# independent re-verification any consumer of `uses: yebiguo/proofrun@v1`
+# gets, applied to this repo. `uses: ./` needs *some* checkout to exist
+# first to locate action.yml; action.yml then does its own authoritative
+# checkout of the exact PR head on top of that (see action.yml's comments
+# for why it doesn't just trust this preliminary one).
+
+on:
+  pull_request:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Configure git identity for the re-run checks
+        run: |
+          git config --global user.email "ci@proofrun.dev"
+          git config --global user.name "ProofRun CI"
+
+      - uses: ./

@@ -76,7 +76,7 @@ proofrun status --strict           # 只要有检查不是 PASS 就非零退出
 
 ## ProofRun 刻意不做的事
 
-不解析测试输出，不判断代码质量，不自动修复任何东西，暂时还没接入 CI（计划中的 GitHub Action 会自己独立重新验证一遍，而不是直接信任某台笔记本本地生成的 receipt——本地生成的 receipt 本来就不该被服务端直接信任）。完整边界见 [AGENTS.md](AGENTS.md)。
+不解析测试输出，不判断代码质量，也不自动修复任何东西。完整边界见 [AGENTS.md](AGENTS.md)。
 
 ## 由 AI agent 写出来，被另一个 AI agent 揪出问题
 
@@ -89,6 +89,7 @@ ProofRun 自己的代码是由 AI 编程 agent（Claude Code）在人类主导�
 ```bash
 proofrun init                      # 生成 .proofrun.yml
 proofrun run <check-name> -- <cmd> # 真实执行 <cmd>，把退出码+耗时绑定到当前 git 状态
+proofrun run-all [--only <name>]   # 跑完所有声明的检查，每跑完一条就落盘一次
 proofrun status [--strict]         # 每条检查的 PASS / FAIL / STALE / NOT RUN；--strict 下只要有 required 检查不是 PASS 就非零退出
 proofrun report [--json]           # 完整报告，人类可读或 JSON
 ```
@@ -114,11 +115,28 @@ checks:
 
 每条结果都绑定着当前 git `HEAD`，加上 `git diff HEAD` 与所有未跟踪、未被 gitignore 的文件内容一起算出的 SHA-256 哈希。`proofrun status` 每次都会重新算一遍这个指纹，跟本地存的对比——哪怕只是改了一个空格、或者多了一个新文件，都会被判定为 `STALE`。
 
+## GitHub Action
+
+```yaml
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: yebiguo/proofrun@v1
+```
+
+这个 Action 会自己独立完成一次 checkout，精确到 PR 的 head commit——它从不信任调用它的 workflow 已经 checkout 出来的内容，所以就算触发方式是 `pull_request`，也不会被 GitHub 默认给的那个合并预览 commit 悄悄替换掉。接着它会清空 PR 分支上带过来的任何 `receipt.json`，下载一个经过校验和验证的 `proofrun` 二进制，真实跑一遍 `proofrun run-all`，最后用 `proofrun status --strict` 做门禁。PR 分支里带的 receipt 从头到尾都不会被信任——门禁看到的每一条结果，都是这次运行自己产生的。
+
+**已知局限：** 这个 Action 保护不了 `.proofrun.yml` 本身——如果同一个 PR 一边改代码一边把某条检查的命令改弱了，Action 只会老老实实地把这条变弱后的检查重新跑一遍。它会在 `.proofrun.yml` 相对 PR 的 base 分支有变化时发一条警告（构建标注），但不会拿这个去挡 PR；这个 diff 需要你像审查其它改动一样自己看一眼。
+
 ## 路线图
 
-- **v0.2** —— 接入 GitHub Action，让 CI 自己独立重新验证，而不是直接信任某台笔记本本地生成的 receipt
 - **v0.3** —— 支持解析常见测试框架（pytest、Jest、JUnit）的结构化输出
 - 带签名、防篡改的 receipt 已经在考虑范围内，还没有设计方案
+- 让同一个 PR 没法悄悄改弱 `.proofrun.yml` 本身（目前只警告不拦截，见上面的"已知局限"）
 
 ## 参与贡献
 

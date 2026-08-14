@@ -76,7 +76,7 @@ proofrun status --strict           # non-zero exit if anything isn't PASS
 
 ## What ProofRun deliberately does not do
 
-It does not parse test output, does not judge code quality, does not auto-fix anything, and doesn't run in CI yet (a GitHub Action is planned — one that re-verifies independently rather than trusting a receipt generated on someone's laptop, since a locally generated receipt isn't something a server should trust as-is). See [AGENTS.md](AGENTS.md) for the complete boundary.
+It does not parse test output, does not judge code quality, and does not auto-fix anything. See [AGENTS.md](AGENTS.md) for the complete boundary.
 
 ## Built by an AI agent, held accountable by one
 
@@ -89,6 +89,7 @@ Every fix was verified against a real reproduction before being accepted — not
 ```bash
 proofrun init                      # generate .proofrun.yml
 proofrun run <check-name> -- <cmd> # run <cmd> for real, bind exit code + duration to current git state
+proofrun run-all [--only <name>]   # run every declared check, saving a result after each one
 proofrun status [--strict]         # PASS / FAIL / STALE / NOT RUN per check; --strict exits non-zero if a required check isn't PASS
 proofrun report [--json]           # full report, human- or machine-readable
 ```
@@ -114,11 +115,28 @@ checks:
 
 Every result is bound to your current git `HEAD` plus a SHA-256 hash of `git diff HEAD` combined with the contents of any untracked, non-ignored files. `proofrun status` recomputes that fingerprint every time and compares it against what's stored locally — any mismatch, down to a single changed space or one new file, reports `STALE`.
 
+## GitHub Action
+
+```yaml
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: yebiguo/proofrun@v1
+```
+
+This does its own checkout of the exact PR head commit — it never trusts whatever the calling workflow already checked out, so a `pull_request` trigger can't silently hand it GitHub's synthetic merge-preview commit instead. It then clears out any `receipt.json` that came in on the PR branch, downloads a checksum-verified `proofrun` binary, and runs `proofrun run-all` for real before gating on `proofrun status --strict`. Nothing about a receipt checked into the PR branch is ever trusted — every result the gate sees was produced by this run.
+
+**Known limitation:** this does not protect `.proofrun.yml` itself from being weakened by the same PR that changes the code — a PR could loosen or remove a check's command and the Action would faithfully re-run the weaker version. It warns (via a build annotation) when `.proofrun.yml` differs from the PR's base branch, but it does not block on that; review that diff the same way you'd review any other part of the change.
+
 ## Roadmap
 
-- **v0.2** — a GitHub Action that re-verifies independently, instead of trusting a receipt generated on someone's laptop
 - **v0.3** — structured output support for common test runners (pytest, Jest, JUnit)
 - Signed, tamper-evident receipts are on the radar, not yet designed
+- Protecting `.proofrun.yml` itself from being weakened within the same PR that changes the code (currently only warned about, not blocked — see "Known limitation" above)
 
 ## Contributing
 

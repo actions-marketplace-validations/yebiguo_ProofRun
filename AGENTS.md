@@ -54,6 +54,32 @@ without asking first. This is a young, low-stakes, pre-1.0 project.
 ## Explicitly out of scope for v0.1 (do not add without a product decision)
 
 No INFERRED status, no parsing of test/build output content (exit code only), no
-GitHub Action yet, no signing/encryption/OIDC, no web UI, no full coding agent, no
-AI/LLM judging code correctness, no auto-fix, no MCP server, no telemetry, no database
-or server component.
+signing/encryption/OIDC, no web UI, no full coding agent, no AI/LLM judging code
+correctness, no auto-fix, no MCP server, no telemetry, no database or server component.
+
+## GitHub Action (`action.yml`, added v0.2)
+
+Independently re-runs whatever `.proofrun.yml` declares against the exact PR head
+commit — never trusts a `receipt.json` checked out from the PR branch (`rm -rf
+.proofrun/` runs before `run-all`). It does its own authoritative checkout (`ref:
+github.event.pull_request.head.sha`) rather than trusting the caller's, because the
+default `pull_request`-triggered checkout lands on GitHub's synthetic merge-preview
+commit, not the real head — see the assert step in action.yml for why that isn't
+just documented around.
+
+It does **not** protect `.proofrun.yml` itself from being weakened by the same PR
+that changes the code — it only warns (a non-blocking `::warning::` annotation) when
+that file differs from the PR's base branch. Don't remove that warning or turn it
+into anything that looks like a guarantee it isn't; if `.proofrun.yml`-tampering
+protection is ever added, it needs its own product decision, not a quiet expansion
+of this warning's scope.
+
+**Release-prep step, required before tagging any real version (e.g. `v0.2.0`):**
+edit the `pin_version="v1"` literal in action.yml's "Download proofrun" step to the
+version being released (e.g. `pin_version="v0.2.0"`), commit that change, *then* tag
+the resulting commit. This makes the tagged commit self-consistent — pinning by that
+tag, by the floating `v1` tag (once release.yml's `float-tag` job moves it there), or
+by that commit's full SHA all resolve to identical action.yml content with the
+identical binary version baked in. Skipping this step means the release's action.yml
+still says `pin_version="v1"`, so it downloads whatever `v1` currently floats to
+instead of the version it was actually released with.
