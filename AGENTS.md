@@ -79,12 +79,14 @@ into anything that looks like a guarantee it isn't; if `.proofrun.yml`-tampering
 protection is ever added, it needs its own product decision, not a quiet expansion
 of this warning's scope.
 
-**Release-prep step, required before tagging any real version (e.g. `v0.2.0`):**
-edit the `pin_version="v1"` literal in action.yml's "Download proofrun" step to the
-version being released (e.g. `pin_version="v0.2.0"`), commit that change, *then* tag
-the resulting commit. This makes the tagged commit self-consistent — pinning by that
-tag, by the floating `v1` tag (once release.yml's `float-tag` job moves it there), or
-by that commit's full SHA all resolve to identical action.yml content with the
-identical binary version baked in. Skipping this step means the release's action.yml
-still says `pin_version="v1"`, so it downloads whatever `v1` currently floats to
-instead of the version it was actually released with.
+**Release-prep step, required before tagging any real version (e.g. `v0.3.0`):** edit
+action.yml's "Download proofrun" step so its `pin_version="..."` literal reads exactly
+the version being released (e.g. `pin_version="v0.3.0"`), commit that change, *then* tag
+the resulting commit. Don't assume what the current value already says — check
+action.yml itself, since this step's whole point is that the value always changes at
+every release. This makes the tagged commit self-consistent — pinning by that tag, by
+the floating `v1` tag (once release.yml's `float-tag` job moves it there), or by that
+commit's full SHA all resolve to identical action.yml content with the identical binary
+version baked in. Skipping this step means the release's action.yml still says
+whatever version it last shipped with, so it downloads a binary that doesn't match the
+version it was actually released as.
