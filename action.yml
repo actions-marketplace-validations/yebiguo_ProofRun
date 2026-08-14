@@ -73,17 +73,26 @@ runs:
         ext=tar.gz
         if [ "$os" = "windows" ]; then ext=zip; fi
         archive="proofrun_${os}_${arch}.${ext}"
-        # Download whatever release matches the ref this action was invoked
-        # at (github.action_ref) — `uses: yebiguo/proofrun@v0.2.0` downloads
-        # the v0.2.0 binary, `@v1` downloads whatever v1 currently floats
-        # to. Hardcoding "v1" here unconditionally would defeat pinning an
-        # exact Action version: action.yml's own logic would stay pinned,
-        # but the binary it downloaded would keep moving with the floating
-        # tag regardless. Falls back to "v1" for a local `uses: ./`
-        # invocation (as in this repo's own dogfood.yml), where
-        # action_ref is empty.
-        pin="${{ github.action_ref }}"
-        base_url="https://github.com/yebiguo/proofrun/releases/download/${pin:-v1}"
+        # PIN_VERSION is a literal, not derived from github.action_ref at
+        # runtime. Two reasons: (1) GitHub advises against interpolating
+        # context values straight into `run:` scripts; (2) more
+        # fundamentally, action_ref is only ever a real release tag for a
+        # `@vX.Y.Z`-style reference — a consumer who does the officially
+        # recommended thing and pins by full commit SHA (or by branch) gets
+        # an action_ref that isn't a release tag at all, and guessing a
+        # tag-shaped URL from it breaks the download outright.
+        #
+        # Bumped as part of cutting each real release (see the release-prep
+        # step in AGENTS.md) so this exact commit always downloads the
+        # binary that matches it: pin `@v0.2.0`, or the full SHA of that
+        # same commit, or the floating `@v1` tag on the day it happens to
+        # point here — all three resolve the identical action.yml content
+        # with the identical PIN_VERSION baked in, no ref-sniffing needed.
+        # Unreleased commits (main, a dev branch) keep the floating "v1"
+        # default below, which is the right behavior for something nobody
+        # should be pinning to in the first place.
+        pin_version="v1"
+        base_url="https://github.com/yebiguo/proofrun/releases/download/${pin_version}"
 
         workdir="${RUNNER_TEMP}/proofrun-install"
         mkdir -p "$workdir"
