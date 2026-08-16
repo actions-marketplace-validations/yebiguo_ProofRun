@@ -116,7 +116,18 @@ func Path(dir string) string {
 // indistinguishable from the check never having run: the same "not present
 // in Checks" path that already produces NOT RUN handles it, so nothing
 // downstream of Load needs to know signing exists at all.
+//
+// validateDirIsReal runs before the file is even opened — DirName being a
+// symlink to an attacker-controlled directory would otherwise let this
+// silently read a receipt.json (and, via LoadOrCreateSecret, a signing
+// key) from outside the project entirely, following the exact same
+// resolve-through-a-symlinked-parent path os.MkdirAll and os.ReadFile both
+// take for granted.
 func Load(dir string) (*Receipt, error) {
+	if err := validateDirIsReal(dir); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(Path(dir))
 	if errors.Is(err, os.ErrNotExist) {
 		return New(), nil
@@ -151,10 +162,16 @@ func Load(dir string) (*Receipt, error) {
 // Save writes the receipt to dir, creating .proofrun/ if needed. Every
 // entry in r.Checks is (re-)signed with this machine's current local
 // signing key immediately before writing — see sign.go.
+//
+// Schema is always stamped to the current SchemaVersion, unconditionally —
+// not just filled in when empty. What Save writes out is, by construction,
+// always in the current format (signed entries); an r loaded from an older
+// on-disk schema and then re-saved must not keep carrying the old marker
+// forward, since nothing about verification actually depends on that
+// string (signatures are the real gate) but a human reading the file
+// shouldn't see a stale, misleading version number either.
 func (r *Receipt) Save(dir string) error {
-	if r.Schema == "" {
-		r.Schema = SchemaVersion
-	}
+	r.Schema = SchemaVersion
 	if err := ensureDir(dir); err != nil {
 		return err
 	}

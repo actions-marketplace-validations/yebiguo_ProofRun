@@ -9,34 +9,63 @@ import (
 	"github.com/yebiguo/proofrun/internal/git"
 )
 
-// ensureDir creates DirName inside dir (if needed) and makes a best-effort
-// attempt to keep it out of the project's git history — see
-// git.EnsureIgnored. Shared by Save and LoadOrCreateSecret, which both need
-// DirName to exist before writing into it.
+// validateDirIsReal refuses outright if DirName already exists but isn't a
+// genuine, ordinary directory of this repository — a symlink, or a nested
+// repository boundary (a submodule, or just an ad-hoc `git init` someone
+// left inside it).
 //
-// Refuses outright if DirName already exists but isn't a real directory —
-// in particular, a symlink. DirName's own existing content can come from a
-// checked-out, untrusted repository, and os.MkdirAll happily follows a
-// symlinked path component: a tracked ".proofrun -> /somewhere/else"
-// symlink would make every subsequent write in this package (receipt.json,
-// and the signing key once LoadOrCreateSecret calls this too) land inside
-// whatever that symlink points at instead of the project. This is checked
-// with Lstat, not Stat — Stat follows the symlink and would report it as a
-// perfectly ordinary directory, which is exactly what writeFileAtomic's own
-// symlink defense (see its doc comment) does NOT protect against: that
-// defense only covers the final path component, not an attacker-controlled
-// parent directory.
-func ensureDir(dir string) error {
+// This must run before anything — read or write — ever looks inside
+// DirName, not just before writing. A checked-out, untrusted repository can
+// track ".proofrun -> somewhere/else" directly: os.MkdirAll and os.Stat
+// both resolve symlinks for intermediate path components (only the *final*
+// component of a path is what Lstat vs Stat actually differ on), so
+// anything built only on Lstat-ing the final file (receipt.json, secret)
+// stays blind to an attacker-controlled parent directory. Concretely: if
+// DirName is a symlink to a directory the attacker also controls,
+// LoadOrCreateSecret's own Lstat-the-final-component check sees an
+// ordinary regular file at the resolved location and happily reads it —
+// silently adopting a key the attacker already knows, which lets them
+// forge signatures that verify perfectly. Checking DirName itself with
+// Lstat closes that: Lstat never follows the symlink at the path's own
+// final component, so a symlinked DirName correctly reports as "not a
+// directory" here instead of being resolved through.
+//
+// The nested-.git check exists for the same reason via a different
+// mechanism: git.IsTracked queries the *outer* repository's index by exact
+// path string. A submodule (or any nested repository) at DirName makes its
+// own contents invisible to that query — a file genuinely tracked inside
+// the nested repo reports as untracked from the outer repo's perspective,
+// defeating the same "reject a git-tracked secret" defense the symlink
+// check exists alongside.
+func validateDirIsReal(dir string) error {
 	proofDir := filepath.Join(dir, DirName)
 
-	if info, err := os.Lstat(proofDir); err == nil {
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%s exists but is not a real directory (found a symlink or other special file) — refusing to write through it", proofDir)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	info, err := os.Lstat(proofDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s exists but is not a real directory (found a symlink or other special file) — refusing to read or write through it", proofDir)
+	}
+	if _, err := os.Lstat(filepath.Join(proofDir, ".git")); err == nil {
+		return fmt.Errorf("%s contains its own .git — refusing to read or write through a nested repository boundary", proofDir)
+	}
+	return nil
+}
 
+// ensureDir creates DirName inside dir (if needed, after validateDirIsReal
+// passes) and makes a best-effort attempt to keep it out of the project's
+// git history — see git.EnsureIgnored. Shared by Save and
+// LoadOrCreateSecret, which both need DirName to exist before writing into
+// it.
+func ensureDir(dir string) error {
+	if err := validateDirIsReal(dir); err != nil {
+		return err
+	}
+	proofDir := filepath.Join(dir, DirName)
 	if err := os.MkdirAll(proofDir, 0o755); err != nil {
 		return err
 	}

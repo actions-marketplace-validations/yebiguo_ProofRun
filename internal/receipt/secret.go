@@ -69,7 +69,21 @@ func SecretPath(dir string) string {
 // point of this mechanism while looking, from the outside, like it's
 // working. This isn't hypothetical only for Day 2+: it's checked here, at
 // the one place every consumer of the key already goes through.
+//
+// (4) validateDirIsReal runs first, before even attempting to read an
+// existing key — not only in the create-a-new-key path below. A symlinked
+// DirName defeats (1) and (3) both: os.Lstat on the *final* path component
+// (secret) resolves straight through a symlinked *parent* directory and
+// reports whatever regular file sits at the far end as perfectly ordinary,
+// and git.IsTracked's exact-path-string query never notices that file is
+// actually tracked under its real, different path. Validating DirName
+// itself first closes that regardless of what either downstream check
+// individually would have missed.
 func LoadOrCreateSecret(dir string) ([]byte, error) {
+	if err := validateDirIsReal(dir); err != nil {
+		return nil, err
+	}
+
 	path := SecretPath(dir)
 
 	if info, err := os.Lstat(path); err == nil {
