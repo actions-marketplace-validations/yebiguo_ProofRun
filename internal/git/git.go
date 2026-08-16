@@ -43,6 +43,56 @@ func IsRepo(dir string) bool {
 	return err == nil && strings.TrimSpace(out) == "true"
 }
 
+// EnsureIgnored makes a best-effort attempt to keep relPath (e.g.
+// ".proofrun/") out of dir's git status/diff, via the repository's local
+// info/exclude file — never dir's own .gitignore, which ProofRun has no
+// business editing on a consumer project's behalf. info/exclude lives
+// inside .git (resolved with `git rev-parse --git-path`, so this works
+// correctly for worktrees too, not just plain repos) and is never
+// committed, which is exactly the property needed here: `proofrun init`
+// doesn't touch a project's .gitignore, so a fresh checkout that never
+// bothered to add its own ".proofrun/" entry would otherwise let a plain
+// `git add .` pick up .proofrun/ wholesale — including, as of v0.3, the
+// local receipt-signing key living inside it.
+//
+// This is deliberately silent on any failure (not a git repo, info/exclude
+// unresolvable or unwritable, ...): it's defense in depth on top of
+// whatever ignore rules the project already has, not something proofrun's
+// core functionality should ever depend on succeeding.
+func EnsureIgnored(dir, relPath string) {
+	if !IsRepo(dir) {
+		return
+	}
+	out, err := run(dir, "rev-parse", "--git-path", "info/exclude")
+	if err != nil {
+		return
+	}
+	excludePath := strings.TrimSpace(out)
+	if !filepath.IsAbs(excludePath) {
+		excludePath = filepath.Join(dir, excludePath)
+	}
+
+	existing, _ := os.ReadFile(excludePath)
+	for _, line := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(line) == relPath {
+			return
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(excludePath), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if len(existing) > 0 && !strings.HasSuffix(string(existing), "\n") {
+		fmt.Fprintln(f)
+	}
+	fmt.Fprintln(f, relPath)
+}
+
 // Head returns the full SHA of the current commit.
 func Head(dir string) (string, error) {
 	if !IsRepo(dir) {
