@@ -128,6 +128,41 @@ checks:
 - **v0.3 之前生成的旧 receipt 没有迁移方案**——直接读作 `NOT RUN`,重新跑一遍就好。
 - **GitHub Action 完全不依赖这套机制**——它从来就不信任 PR 分支带过来的 `receipt.json`(重新跑之前会先清空 `.proofrun/`),所以本地签名这件事跟 Action 输出结果的可信度没有关系。
 
+## `receipt.json`
+
+`.proofrun/receipt.json` 就是一份普通的、可以直接读的 JSON 文件——外部工具完全可以直接解析它,不需要非得通过 `proofrun status` 这层。下面这份是真实跑出来的,对这个仓库执行 `proofrun run build -- go build ./...` 之后原样产生的:
+
+```json
+{
+  "schema": "proofrun/v2",
+  "checks": {
+    "build": {
+      "status": "pass",
+      "command": ["go", "build", "./..."],
+      "exit_code": 0,
+      "duration_ms": 1543,
+      "started_at": "2026-08-16T12:32:23.2985133Z",
+      "verified_against": {
+        "head": "13ee2ba83dd2d0b992101a1e7462397758704663",
+        "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "signature": "02d78d28bf62cad8226b48ce93fc6e21a29d3d4037b7bebed0b0a6628ede2a2f"
+    }
+  }
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `schema` | 格式标记(v0.3 起是 `proofrun/v2`)。这只是给人看的标签,不参与验证逻辑——签名是否有效才是真正的判断依据,不是这个字符串。 |
+| `checks.<name>.status` | 上一次真实执行的字面结果:`"pass"` 或 `"fail"`,只由进程的退出码决定。`STALE` 和 `NOT RUN` 从来不会写进这个文件——它们是读取的时候现算的,不是存出来的。 |
+| `checks.<name>.command` | 真正执行的完整参数数组——从来不是拼接出来的 shell 字符串。 |
+| `checks.<name>.exit_code`、`duration_ms`、`started_at` | 字面意思。 |
+| `checks.<name>.verified_against` | 这条结果绑定的 git `head` 提交和 `diff_sha256` 指纹——`status` 命令就是拿这个跟当前指纹对比,来判断到底是 `PASS`/`FAIL` 还是 `STALE`。 |
+| `checks.<name>.signature` | 用本机的本地密钥(见上面"篡改可检测的 receipt"一节),对这条记录里除 `signature` 自己以外的所有字段算出的 HMAC-SHA256。 |
+
+**如果你要自己解析这份文件,而不是只看 `proofrun status` 的输出,有一点需要知道:** 一条检查如果签名验证不过,并**不会**被标成类似 `"status": "tampered"` 这种值——**这整条记录会直接从 `checks` 里消失**。如果你在自己写代码消费这份文件,某个你以为该存在的检查名字不在 `checks` 里,这件事本身就是信号——跟一条在 `.proofrun.yml` 里声明过、但从来没真正跑过的检查是一样的表现。ProofRun 表达"这个不能信"的方式是"让它消失",不是打一个标志位。
+
 ## GitHub Action
 
 ```yaml
