@@ -130,7 +130,7 @@ checks:
 
 ## `receipt.json`
 
-`.proofrun/receipt.json` 就是一份普通的、可以直接读的 JSON 文件——外部工具完全可以直接解析它,不需要非得通过 `proofrun status` 这层。下面这份是真实跑出来的,对这个仓库执行 `proofrun run build -- go build ./...` 之后原样产生的:
+`.proofrun/receipt.json` 是一份普通的、可以直接读的 JSON 文件,外部工具确实可以直接解析它——但**磁盘上这份原始文件是没有经过信任过滤的存储,不是一份已经验证过的可信视图**。自己读这份文件,就意味着你得自己做签名验证(不然就是只信指纹和退出码,而这正是这整个项目存在的意义所在——要堵住的那种假 PASS 风险)。如果你要的是 ProofRun 真正的信任判断结果(验过签名、无效条目已经被剔除),应该调用 `proofrun status`/`proofrun report --json`,或者自己照着下面说的 `Receipt.Load` 的逻辑重新实现一遍,而不是直接把文件内容当真。下面这份是真实跑出来的,对这个仓库执行 `proofrun run build -- go build ./...` 之后原样产生的:
 
 ```json
 {
@@ -161,7 +161,9 @@ checks:
 | `checks.<name>.verified_against` | 这条结果绑定的 git `head` 提交和 `diff_sha256` 指纹——`status` 命令就是拿这个跟当前指纹对比,来判断到底是 `PASS`/`FAIL` 还是 `STALE`。 |
 | `checks.<name>.signature` | 用本机的本地密钥(见上面"篡改可检测的 receipt"一节),对这条记录里除 `signature` 自己以外的所有字段算出的 HMAC-SHA256。 |
 
-**如果你要自己解析这份文件,而不是只看 `proofrun status` 的输出,有一点需要知道:** 一条检查如果签名验证不过,并**不会**被标成类似 `"status": "tampered"` 这种值——**这整条记录会直接从 `checks` 里消失**。如果你在自己写代码消费这份文件,某个你以为该存在的检查名字不在 `checks` 里,这件事本身就是信号——跟一条在 `.proofrun.yml` 里声明过、但从来没真正跑过的检查是一样的表现。ProofRun 表达"这个不能信"的方式是"让它消失",不是打一个标志位。
+**"磁盘上的内容"和"可信视图"是两码事——如果你要自己解析这份文件,这是最关键的一点:** 一条检查如果签名验证不过,**既不会**被改写成 `"status": "tampered"` 这种值,**也不会从文件里被删掉**——ProofRun 除了真的执行一次 `run`/`run-all`,不会在任何其他情况下往 `receipt.json` 里写东西。一条手改过的记录会原样留在磁盘上,`"status": "pass"` 什么的都还在,一直留到有人重新跑一遍那条检查为止。真实发生的事情范围更窄:`Receipt.Load`(`status`/`report` 内部调用的就是这个函数)会解析文件、检查每条记录的签名,把验证不过的条目从**它返回的内存结果里**剔除——那条检查读出来就是 `NOT RUN`(如果这条检查根本没在 `.proofrun.yml` 里声明过,甚至会从 `status` 输出里彻底消失,见上文)。这个过滤动作从来不会碰磁盘上的文件本身。
+
+具体来说:如果你自己 `json.parse` 这份原始文件,直接相信 `checks.test.status == "pass"`,你面对的正是这个项目从一开始就要堵住的那种假 PASS 风险——签名校验才是让这个状态值得信任的那一步,跳过它不是抄近路,是彻底绕开了整套机制。如果你想自己实现签名校验、不想每次都调用 `proofrun`:做法是对某条检查对象的 JSON 编码算 HMAC-SHA256,编码前先把 `signature` 字段本身置空(`""`),密钥用的是本机 `.proofrun/secret` 里的内容——想照着实现的话,具体签的是哪些字节,看 `internal/receipt/sign.go` 里的实现。
 
 ## GitHub Action
 
