@@ -43,6 +43,24 @@ func IsRepo(dir string) bool {
 	return err == nil && strings.TrimSpace(out) == "true"
 }
 
+// IsTracked reports whether relPath (relative to dir) is tracked by git —
+// present in the index, regardless of whether it currently has uncommitted
+// modifications. Used to refuse trusting a machine-local secret that
+// turns out to actually be checked into the repository: anyone with read
+// access to the repo already knows its content, so a tracked file can
+// never serve as a local-only secret no matter how it got there (an
+// attacker committing one deliberately, or a past mistake before
+// EnsureIgnored existed).
+//
+// Returns false on any error (not a repo, git itself fails, ...) rather
+// than propagating it — this is a soft, best-effort signal like
+// EnsureIgnored, not something callers should treat as authoritative in
+// the way IsRepo is.
+func IsTracked(dir, relPath string) bool {
+	_, err := run(dir, "ls-files", "--error-unmatch", "--", relPath)
+	return err == nil
+}
+
 // EnsureIgnored makes a best-effort attempt to keep relPath (e.g.
 // ".proofrun/") out of dir's git status/diff, via the repository's local
 // info/exclude file — never dir's own .gitignore, which ProofRun has no

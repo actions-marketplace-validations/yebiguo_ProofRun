@@ -20,8 +20,11 @@ import (
 	"time"
 )
 
-// SchemaVersion identifies the receipt.json format.
-const SchemaVersion = "proofrun/v1"
+// SchemaVersion identifies the receipt.json format. v2 adds a signature to
+// every CheckResult (see sign.go) — an unsigned or wrongly-signed entry is
+// never trusted regardless of what Schema itself claims, so this string is
+// purely a human-readable marker, not something verification branches on.
+const SchemaVersion = "proofrun/v2"
 
 // DirName is the directory receipt.json lives in, relative to the project
 // root. It is machine-local state and should not be committed to git.
@@ -57,6 +60,14 @@ type CheckResult struct {
 	DurationMS      int64       `json:"duration_ms"`
 	StartedAt       time.Time   `json:"started_at"`
 	VerifiedAgainst Fingerprint `json:"verified_against"`
+	// Signature is an HMAC-SHA256 over every other field, under this
+	// machine's local signing key (see sign.go, secret.go). Save computes
+	// it; Load verifies it and drops any entry that doesn't check out — an
+	// empty or wrong Signature is never trusted, and is not distinguished
+	// from each other (a receipt written before v0.3 and a hand-edited one
+	// both simply have no valid signature). See sign.go for what this is
+	// and isn't meant to defend against.
+	Signature string `json:"signature"`
 }
 
 // Receipt is the full contents of receipt.json.
@@ -96,7 +107,27 @@ func Path(dir string) string {
 // Load reads receipt.json from dir. A missing file is not an error: it
 // returns a fresh empty receipt, since "no receipt yet" is a normal,
 // expected state (every check is NOT RUN).
+//
+// Every entry's signature is verified against this machine's local signing
+// key (see sign.go, secret.go) before being handed back to the caller — an
+// entry that doesn't verify (never signed, signed with a different key, or
+// hand-edited after being signed) is dropped from the returned Receipt
+// entirely, not flagged some other way. From Evaluate's perspective that's
+// indistinguishable from the check never having run: the same "not present
+// in Checks" path that already produces NOT RUN handles it, so nothing
+// downstream of Load needs to know signing exists at all.
+//
+// validateDirIsReal runs before the file is even opened — DirName being a
+// symlink to an attacker-controlled directory would otherwise let this
+// silently read a receipt.json (and, via LoadOrCreateSecret, a signing
+// key) from outside the project entirely, following the exact same
+// resolve-through-a-symlinked-parent path os.MkdirAll and os.ReadFile both
+// take for granted.
 func Load(dir string) (*Receipt, error) {
+	if err := validateDirIsReal(dir); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(Path(dir))
 	if errors.Is(err, os.ErrNotExist) {
 		return New(), nil
@@ -112,17 +143,50 @@ func Load(dir string) (*Receipt, error) {
 	if r.Checks == nil {
 		r.Checks = map[string]CheckResult{}
 	}
+
+	if len(r.Checks) > 0 {
+		key, err := LoadOrCreateSecret(dir)
+		if err != nil {
+			return nil, fmt.Errorf("loading local signing key to verify %s: %w", FileName, err)
+		}
+		for name, cr := range r.Checks {
+			if !verifySignature(key, cr) {
+				delete(r.Checks, name)
+			}
+		}
+	}
+
 	return &r, nil
 }
 
-// Save writes the receipt to dir, creating .proofrun/ if needed.
+// Save writes the receipt to dir, creating .proofrun/ if needed. Every
+// entry in r.Checks is (re-)signed with this machine's current local
+// signing key immediately before writing — see sign.go.
+//
+// Schema is always stamped to the current SchemaVersion, unconditionally —
+// not just filled in when empty. What Save writes out is, by construction,
+// always in the current format (signed entries); an r loaded from an older
+// on-disk schema and then re-saved must not keep carrying the old marker
+// forward, since nothing about verification actually depends on that
+// string (signatures are the real gate) but a human reading the file
+// shouldn't see a stale, misleading version number either.
 func (r *Receipt) Save(dir string) error {
-	if r.Schema == "" {
-		r.Schema = SchemaVersion
-	}
+	r.Schema = SchemaVersion
 	if err := ensureDir(dir); err != nil {
 		return err
 	}
+
+	if len(r.Checks) > 0 {
+		key, err := LoadOrCreateSecret(dir)
+		if err != nil {
+			return fmt.Errorf("loading local signing key to sign %s: %w", FileName, err)
+		}
+		for name, cr := range r.Checks {
+			cr.Signature = computeSignature(key, cr)
+			r.Checks[name] = cr
+		}
+	}
+
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err

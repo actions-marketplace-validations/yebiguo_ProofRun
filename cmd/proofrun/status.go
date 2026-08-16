@@ -65,10 +65,19 @@ func init() {
 // evaluateAll computes the display-time status of every check known either
 // from .proofrun.yml (so never-run checks still show as NOT RUN) or from
 // the receipt (so a check that was run without ever being declared in
-// config still shows up). Returns evaluations sorted by name, plus which
-// names are "required" per config (defaults to false for undeclared
-// checks — declaring `required: true` in .proofrun.yml is what opts a
-// check into blocking `status --strict`).
+// config still shows up) — with one deliberate exception: receipt.Load
+// already drops any entry whose signature doesn't verify (see AGENTS.md's
+// "Tamper-evident receipts" section) before this function ever sees r, so
+// a tampered check that was never declared in .proofrun.yml has no
+// remaining trace to surface here. It simply isn't counted, rather than
+// showing as NOT RUN. A tampered check that *is* declared in config still
+// shows NOT RUN as expected, since its name comes from cfg.Checks
+// regardless of what survived in the receipt.
+//
+// Returns evaluations sorted by name, plus which names are "required" per
+// config (defaults to false for undeclared checks — declaring `required:
+// true` in .proofrun.yml is what opts a check into blocking `status
+// --strict`).
 func evaluateAll(dir string) ([]receipt.Evaluation, map[string]bool, error) {
 	head, err := git.Head(dir)
 	if err != nil {

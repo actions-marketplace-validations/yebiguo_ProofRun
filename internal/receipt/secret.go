@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/yebiguo/proofrun/internal/git"
 )
 
 // SecretFileName is the local signing key's filename inside DirName.
@@ -21,11 +23,17 @@ func SecretPath(dir string) string {
 }
 
 // LoadOrCreateSecret returns this machine's local receipt-signing key,
-// generating and persisting a new random one on first use. The key never
-// leaves the local .proofrun/ directory, and ensureDir makes a best-effort
-// attempt to keep .proofrun/ out of the project's git history even if the
-// project's own .gitignore never mentions it — this key existing at all is
-// only useful if it isn't the kind of thing a plain `git add .` picks up.
+// generating and persisting a new random one on first use. ProofRun itself
+// never transmits this key anywhere, and ensureDir makes a best-effort
+// attempt (via the repository-local .git/info/exclude, not the project's
+// own .gitignore) to keep .proofrun/ out of the project's git history even
+// if nobody ever gitignored it — this key existing at all is only useful
+// if a plain `git add .` doesn't casually pick it up. That's a best effort,
+// not a guarantee: nothing stops a user from `git add -f`-ing it anyway, or
+// some other tool from copying the file elsewhere. What LoadOrCreateSecret
+// itself guarantees is narrower and enforced, not just hoped for: if the
+// key ever does end up git-tracked regardless of how, it's checked below
+// (git.IsTracked) and refused rather than trusted.
 //
 // This is tamper-evident, not tamper-proof: it exists to make casually
 // hand-edited receipt.json content detectable, not to withstand an attacker
@@ -57,12 +65,35 @@ func SecretPath(dir string) string {
 // WriteFile opens with O_TRUNC and follows symlinks — writing "through" a
 // planted symlink would truncate and overwrite whatever it points at,
 // anywhere the current user has write access to. os.Rename replaces the
-// directory entry itself, symlink or not, without ever writing through it.
+// directory entry itself, symlink or not, without ever writing through it;
+// (3) an existing key file that IS a valid regular file of the right
+// length is still rejected if it's tracked by git (git.IsTracked) — a
+// repository can ship a plausible-looking, correctly-sized "secret"
+// pre-committed, and anyone who cloned it already knows its content just
+// as well as the local machine does. Trusting it would let that same
+// person forge signatures that verify perfectly, defeating the entire
+// point of this mechanism while looking, from the outside, like it's
+// working. This isn't hypothetical only for Day 2+: it's checked here, at
+// the one place every consumer of the key already goes through.
+//
+// (4) validateDirIsReal runs first, before even attempting to read an
+// existing key — not only in the create-a-new-key path below. A symlinked
+// DirName defeats (1) and (3) both: os.Lstat on the *final* path component
+// (secret) resolves straight through a symlinked *parent* directory and
+// reports whatever regular file sits at the far end as perfectly ordinary,
+// and git.IsTracked's exact-path-string query never notices that file is
+// actually tracked under its real, different path. Validating DirName
+// itself first closes that regardless of what either downstream check
+// individually would have missed.
 func LoadOrCreateSecret(dir string) ([]byte, error) {
+	if err := validateDirIsReal(dir); err != nil {
+		return nil, err
+	}
+
 	path := SecretPath(dir)
 
 	if info, err := os.Lstat(path); err == nil {
-		if info.Mode().IsRegular() {
+		if info.Mode().IsRegular() && !git.IsTracked(dir, DirName+"/"+SecretFileName) {
 			if data, err := os.ReadFile(path); err == nil && len(data) == secretKeyLen {
 				return data, nil
 			}
