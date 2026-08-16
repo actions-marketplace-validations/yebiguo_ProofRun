@@ -1,6 +1,8 @@
 package receipt
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -11,8 +13,31 @@ import (
 // attempt to keep it out of the project's git history — see
 // git.EnsureIgnored. Shared by Save and LoadOrCreateSecret, which both need
 // DirName to exist before writing into it.
+//
+// Refuses outright if DirName already exists but isn't a real directory —
+// in particular, a symlink. DirName's own existing content can come from a
+// checked-out, untrusted repository, and os.MkdirAll happily follows a
+// symlinked path component: a tracked ".proofrun -> /somewhere/else"
+// symlink would make every subsequent write in this package (receipt.json,
+// and the signing key once LoadOrCreateSecret calls this too) land inside
+// whatever that symlink points at instead of the project. This is checked
+// with Lstat, not Stat — Stat follows the symlink and would report it as a
+// perfectly ordinary directory, which is exactly what writeFileAtomic's own
+// symlink defense (see its doc comment) does NOT protect against: that
+// defense only covers the final path component, not an attacker-controlled
+// parent directory.
 func ensureDir(dir string) error {
-	if err := os.MkdirAll(filepath.Join(dir, DirName), 0o755); err != nil {
+	proofDir := filepath.Join(dir, DirName)
+
+	if info, err := os.Lstat(proofDir); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s exists but is not a real directory (found a symlink or other special file) — refusing to write through it", proofDir)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	if err := os.MkdirAll(proofDir, 0o755); err != nil {
 		return err
 	}
 	git.EnsureIgnored(dir, DirName+"/")
