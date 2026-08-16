@@ -49,7 +49,7 @@ Every check result is bound to a fingerprint of your exact code state: the git c
 ## Install
 
 ```bash
-curl -L https://github.com/yebiguo/proofrun/releases/download/v0.2.0/proofrun_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/yebiguo/proofrun/releases/download/v0.3.0/proofrun_linux_amd64.tar.gz | tar xz
 # other platforms: https://github.com/yebiguo/proofrun/releases
 ```
 
