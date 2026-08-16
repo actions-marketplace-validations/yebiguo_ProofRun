@@ -22,13 +22,18 @@ func SecretPath(dir string) string {
 
 // LoadOrCreateSecret returns this machine's local receipt-signing key,
 // generating and persisting a new random one on first use. The key never
-// leaves the local .proofrun/ directory and is never committed to git (see
-// .gitignore) — it exists to make casually hand-edited receipt.json content
-// detectable, not to withstand an attacker who already has read access to
-// this file. Anyone who can read receipt.json can read this key too, and
-// forge a signature that matches it; that is an inherent limit of any
-// local-only integrity scheme, not a bug in this one. See package doc for
-// what this is actually meant to catch.
+// leaves the local .proofrun/ directory, and ensureDir makes a best-effort
+// attempt to keep .proofrun/ out of the project's git history even if the
+// project's own .gitignore never mentions it — this key existing at all is
+// only useful if it isn't the kind of thing a plain `git add .` picks up.
+//
+// This is tamper-evident, not tamper-proof: it exists to make casually
+// hand-edited receipt.json content detectable, not to withstand an attacker
+// who already has read access to this file. Anyone who can read
+// receipt.json can read this key too, and forge a signature that matches
+// it; that is an inherent limit of any local-only integrity scheme, not a
+// bug in this one. See package doc for what this is actually meant to
+// catch.
 //
 // A missing or malformed key file (wrong length — truncated, corrupted, or
 // hand-edited) is treated the same way: silently regenerated. This is a
@@ -37,12 +42,32 @@ func SecretPath(dir string) string {
 // the one real consequence of regenerating: any receipts signed with the
 // old key stop verifying and read as NOT RUN, which is exactly the correct,
 // conservative response to "we can no longer prove this result is genuine".
+//
+// The path this reads from and writes to can come from a checked-out,
+// untrusted repository (DirName's contents aren't something ProofRun's own
+// history gets to assume are trustworthy — that's the same reason the
+// GitHub Action clears .proofrun/ before re-running rather than trusting
+// it). Two things follow from that, deliberately: (1) the existing-file
+// check uses Lstat, not Stat, and only accepts a regular file — a symlink
+// at this exact path (planted by a hostile repo, pointing anywhere on
+// disk) is treated as absent rather than followed and read, since a
+// same-length symlink target would otherwise get silently trusted as this
+// machine's signing key; (2) writing uses writeFileAtomic (create a temp
+// file, then os.Rename over the target) rather than os.WriteFile, since
+// WriteFile opens with O_TRUNC and follows symlinks — writing "through" a
+// planted symlink would truncate and overwrite whatever it points at,
+// anywhere the current user has write access to. os.Rename replaces the
+// directory entry itself, symlink or not, without ever writing through it.
 func LoadOrCreateSecret(dir string) ([]byte, error) {
 	path := SecretPath(dir)
 
-	if data, err := os.ReadFile(path); err == nil && len(data) == secretKeyLen {
-		return data, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode().IsRegular() {
+			if data, err := os.ReadFile(path); err == nil && len(data) == secretKeyLen {
+				return data, nil
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 
@@ -50,10 +75,10 @@ func LoadOrCreateSecret(dir string) ([]byte, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("generating local signing key: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, DirName), 0o755); err != nil {
+	if err := ensureDir(dir); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, key, 0o600); err != nil {
+	if err := writeFileAtomic(path, key, 0o600); err != nil {
 		return nil, err
 	}
 	return key, nil

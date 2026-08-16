@@ -120,14 +120,14 @@ func (r *Receipt) Save(dir string) error {
 	if r.Schema == "" {
 		r.Schema = SchemaVersion
 	}
-	if err := os.MkdirAll(filepath.Join(dir, DirName), 0o755); err != nil {
+	if err := ensureDir(dir); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(Path(dir), data, 0o644)
+	return writeFileAtomic(Path(dir), data, 0o644)
 }
 
 // Set records or overwrites a check's result.
