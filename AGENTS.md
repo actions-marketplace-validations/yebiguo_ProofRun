@@ -145,3 +145,13 @@ commit's full SHA all resolve to identical action.yml content with the identical
 version baked in. Skipping this step means the release's action.yml still says
 whatever version it last shipped with, so it downloads a binary that doesn't match the
 version it was actually released as.
+
+This release-prep commit creates an intentional bootstrap gap: `dogfood.yml` uses the
+branch's local `action.yml`, which now tries to download the new version before that
+version has been tagged or published. Its three `verify` jobs therefore fail with a
+release-asset HTTP 404 by construction. For a release-prep PR whose diff is limited to
+the `pin_version` update, whose three `test` jobs pass, and whose `verify` logs fail only
+at that expected download, use an administrator merge (or a direct push) instead of
+waiting for `verify` to turn green. After the tag publishes the assets, re-run dogfood
+against the released version and require all three `verify` jobs to pass; this exception
+applies only to the pre-release bootstrap commit, not to ordinary changes.
