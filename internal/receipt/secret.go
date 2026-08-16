@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/yebiguo/proofrun/internal/git"
 )
 
 // SecretFileName is the local signing key's filename inside DirName.
@@ -57,12 +59,21 @@ func SecretPath(dir string) string {
 // WriteFile opens with O_TRUNC and follows symlinks — writing "through" a
 // planted symlink would truncate and overwrite whatever it points at,
 // anywhere the current user has write access to. os.Rename replaces the
-// directory entry itself, symlink or not, without ever writing through it.
+// directory entry itself, symlink or not, without ever writing through it;
+// (3) an existing key file that IS a valid regular file of the right
+// length is still rejected if it's tracked by git (git.IsTracked) — a
+// repository can ship a plausible-looking, correctly-sized "secret"
+// pre-committed, and anyone who cloned it already knows its content just
+// as well as the local machine does. Trusting it would let that same
+// person forge signatures that verify perfectly, defeating the entire
+// point of this mechanism while looking, from the outside, like it's
+// working. This isn't hypothetical only for Day 2+: it's checked here, at
+// the one place every consumer of the key already goes through.
 func LoadOrCreateSecret(dir string) ([]byte, error) {
 	path := SecretPath(dir)
 
 	if info, err := os.Lstat(path); err == nil {
-		if info.Mode().IsRegular() {
+		if info.Mode().IsRegular() && !git.IsTracked(dir, DirName+"/"+SecretFileName) {
 			if data, err := os.ReadFile(path); err == nil && len(data) == secretKeyLen {
 				return data, nil
 			}

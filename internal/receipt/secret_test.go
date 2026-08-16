@@ -3,6 +3,7 @@ package receipt
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -173,6 +174,46 @@ func TestLoadOrCreateSecret_SymlinkToWrongLengthFileIsNotWrittenThrough(t *testi
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		t.Fatal("the symlink at .proofrun/secret was never replaced with a regular file")
+	}
+}
+
+// TestLoadOrCreateSecret_RejectsGitTrackedSecret covers a gap flagged
+// during review as worth closing before signing goes live: a repository
+// can ship a plausible-looking, correctly-sized "secret" file that's
+// already committed. Nothing about its content, length, or file type looks
+// wrong — the only thing wrong with it is that anyone who cloned the repo
+// already knows what it says, which defeats the entire point of a
+// machine-local signing key. LoadOrCreateSecret must refuse to trust it and
+// generate a real local one instead, even though every other check
+// (regular file, right length, not a symlink) passes.
+func TestLoadOrCreateSecret_RejectsGitTrackedSecret(t *testing.T) {
+	dir := newTestRepo(t)
+
+	committedKey := bytes.Repeat([]byte("B"), secretKeyLen)
+	if err := os.MkdirAll(filepath.Join(dir, DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SecretPath(dir), committedKey, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("add", "-f", filepath.Join(DirName, SecretFileName))
+	run("commit", "-m", "adversarial: pre-committed secret")
+
+	key, err := LoadOrCreateSecret(dir)
+	if err != nil {
+		t.Fatalf("LoadOrCreateSecret should recover from a tracked secret, not error: %v", err)
+	}
+	if bytes.Equal(key, committedKey) {
+		t.Fatal("LoadOrCreateSecret trusted a git-tracked secret — anyone who cloned this repo knows this key too")
 	}
 }
 
