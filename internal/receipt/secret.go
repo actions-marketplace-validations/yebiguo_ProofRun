@@ -23,11 +23,17 @@ func SecretPath(dir string) string {
 }
 
 // LoadOrCreateSecret returns this machine's local receipt-signing key,
-// generating and persisting a new random one on first use. The key never
-// leaves the local .proofrun/ directory, and ensureDir makes a best-effort
-// attempt to keep .proofrun/ out of the project's git history even if the
-// project's own .gitignore never mentions it — this key existing at all is
-// only useful if it isn't the kind of thing a plain `git add .` picks up.
+// generating and persisting a new random one on first use. ProofRun itself
+// never transmits this key anywhere, and ensureDir makes a best-effort
+// attempt (via the repository-local .git/info/exclude, not the project's
+// own .gitignore) to keep .proofrun/ out of the project's git history even
+// if nobody ever gitignored it — this key existing at all is only useful
+// if a plain `git add .` doesn't casually pick it up. That's a best effort,
+// not a guarantee: nothing stops a user from `git add -f`-ing it anyway, or
+// some other tool from copying the file elsewhere. What LoadOrCreateSecret
+// itself guarantees is narrower and enforced, not just hoped for: if the
+// key ever does end up git-tracked regardless of how, it's checked below
+// (git.IsTracked) and refused rather than trusted.
 //
 // This is tamper-evident, not tamper-proof: it exists to make casually
 // hand-edited receipt.json content detectable, not to withstand an attacker

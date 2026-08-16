@@ -69,8 +69,12 @@ product decision, not a quiet expansion of what "signing" already means here.
 ## Tamper-evident receipts (`internal/receipt/sign.go`, `secret.go`, added v0.3)
 
 Every stored `CheckResult` carries an HMAC-SHA256 signature under a random key
-generated on first use and kept at `.proofrun/secret` — never committed (see
-`internal/git.EnsureIgnored`), never transmitted anywhere. `Save` signs; `Load`
+generated on first use and kept at `.proofrun/secret` — kept out of git on a
+best-effort basis via the repository-local `.git/info/exclude` (see
+`internal/git.EnsureIgnored`; nothing stops a user from `git add -f`-ing it anyway,
+but if the key ever does end up git-tracked, `LoadOrCreateSecret` refuses to trust
+it rather than silently signing with a key anyone who cloned the repo already
+knows). ProofRun itself never transmits the key anywhere. `Save` signs; `Load`
 verifies and silently drops any entry that doesn't check out (never signed, wrong
 key, or edited after signing) — that's the same "not present in Checks" path that
 already produces `NOT RUN`, so no fifth status exists for this.
