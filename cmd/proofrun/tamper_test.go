@@ -108,3 +108,75 @@ func TestStatusStrict_HandEditedReceipt_NeverShowsForgedPass(t *testing.T) {
 		t.Fatalf("status --strict output does not show NOT RUN for the tampered check as expected\noutput:\n%s", statusOut)
 	}
 }
+
+// TestStatus_TamperedUndeclaredCheck_DisappearsRatherThanShowingNotRun locks
+// in a deliberate, documented (AGENTS.md, "Tamper-evident receipts") edge
+// case: receipt.Load already drops any entry whose signature doesn't
+// verify before evaluateAll (status.go) ever sees it, and evaluateAll only
+// learns a check's name exists from .proofrun.yml or from whatever
+// survived in the receipt. A check that was `proofrun run` without ever
+// being declared in .proofrun.yml, then tampered with, has no other trace
+// to surface — it disappears from `status` output entirely rather than
+// showing NOT RUN. This never produces a false PASS (the direction that
+// actually matters), but it's a real, easy-to-get-backwards behavior that
+// deserves a test pinning it down rather than an accident nobody notices
+// until the docs and the code disagree.
+func TestStatus_TamperedUndeclaredCheck_DisappearsRatherThanShowingNotRun(t *testing.T) {
+	bin := buildProofrun(t)
+	dir := newTestRepo(t)
+	// Deliberately no .proofrun.yml anywhere in dir.
+
+	var okCmd []string
+	if runtime.GOOS == "windows" {
+		okCmd = []string{"cmd", "/C", "exit", "/B", "0"}
+	} else {
+		okCmd = []string{"sh", "-c", "exit 0"}
+	}
+
+	runCmd := exec.Command(bin, append([]string{"run", "adhoc", "--"}, okCmd...)...)
+	runCmd.Dir = dir
+	if out, err := runCmd.CombinedOutput(); err != nil {
+		t.Fatalf("proofrun run adhoc: %v\n%s", err, out)
+	}
+
+	receiptPath := filepath.Join(dir, receipt.DirName, receipt.FileName)
+	raw, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk receipt.Receipt
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatal(err)
+	}
+	cr, ok := onDisk.Checks["adhoc"]
+	if !ok {
+		t.Fatal("run did not record a result for \"adhoc\"")
+	}
+
+	// Corrupt the signature itself this time (rather than a content field)
+	// — either way invalidates it, and this is the simplest way to do so
+	// without needing to know the local key.
+	cr.Signature = "0000000000000000000000000000000000000000000000000000000000000000"
+	onDisk.Checks["adhoc"] = cr
+	tampered, err := json.MarshalIndent(&onDisk, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, tampered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusCmd := exec.Command(bin, "status")
+	statusCmd.Dir = dir
+	out, err := statusCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("status (non-strict) should exit 0 here, got: %v\n%s", err, out)
+	}
+
+	if bytes.Contains(out, []byte("adhoc")) {
+		t.Fatalf("status output still mentions \"adhoc\" — expected it to disappear entirely once its only evidence (the receipt entry) failed verification\noutput:\n%s", out)
+	}
+	if !bytes.Contains(out, []byte("no checks found")) {
+		t.Fatalf("expected the documented \"no checks found\" message (nothing declared, nothing left to evaluate), got:\n%s", out)
+	}
+}

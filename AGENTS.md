@@ -59,8 +59,59 @@ without asking first. This is a young, low-stakes, pre-1.0 project.
 ## Explicitly out of scope (do not add without a product decision)
 
 No INFERRED status, no parsing of test/build output content (exit code only), no
-signing/encryption/OIDC, no web UI, no full coding agent, no AI/LLM judging code
-correctness, no auto-fix, no MCP server, no telemetry, no database or server component.
+remote attestation, public-key/distributed signing, encryption, or OIDC, no web UI, no
+full coding agent, no AI/LLM judging code correctness, no auto-fix, no MCP server, no
+telemetry, no database or server component. v0.3's local HMAC signing (see below) is
+deliberately limited to detecting casual receipt edits on a single machine — it is not
+portable, remotely verifiable evidence, and adding any of the above needs its own
+product decision, not a quiet expansion of what "signing" already means here.
+
+## Tamper-evident receipts (`internal/receipt/sign.go`, `secret.go`, added v0.3)
+
+Every stored `CheckResult` carries an HMAC-SHA256 signature under a random key
+generated on first use and kept at `.proofrun/secret` — never committed (see
+`internal/git.EnsureIgnored`), never transmitted anywhere. `Save` signs; `Load`
+verifies and silently drops any entry that doesn't check out (never signed, wrong
+key, or edited after signing) — that's the same "not present in Checks" path that
+already produces `NOT RUN`, so no fifth status exists for this.
+
+**Read this before assuming it guarantees more than it does:**
+
+- **Tamper-evident, not tamper-proof.** The threat this closes is a naive hand-edit
+  of `receipt.json` (or an AI agent that doesn't know signing exists trying the same
+  thing) — not a sophisticated attacker. Anyone who can read `.proofrun/secret` can
+  forge a signature that verifies perfectly; that's an inherent limit of any
+  local-only integrity scheme, not a gap to "fix" without fundamentally changing what
+  this is.
+- **Machine-local only, not portable evidence.** A `receipt.json` copied to another
+  machine (or restored from a backup on the same machine) verifies only if
+  `.proofrun/secret` travels with it. This was never meant to be something you hand
+  someone else and say "trust this" — the GitHub Action's independent re-run remains
+  the only thing that produces evidence a third party should trust.
+- **Does not defend against rollback/replay.** A *genuinely* signed `receipt.json`
+  from an earlier real run, restored later against a working tree that happens to
+  have the identical fingerprint again (e.g. code reverted to a prior state), verifies
+  correctly — the signature only proves "this machine really produced this at some
+  point," not "this is the most recent run." STALE detection catches a fingerprint
+  that no longer matches; it was never designed to catch a fingerprint that matches
+  again by coincidence or reversion. Don't describe this feature as replay-proof.
+- **A lost or corrupted key regenerates silently**, and every receipt signed under
+  the old key stops verifying — this is the correct, conservative behavior (see
+  `secret.go`'s doc comment), not a bug to route around.
+- **Pre-v0.3 (unsigned) receipts read as `NOT RUN`, with no migration path.** Re-run
+  the check; there is nothing else to do about an old, unsigned entry.
+- **An entry whose signature fails to verify, if its name isn't declared in the
+  current `.proofrun.yml`, disappears from `status` output entirely rather than
+  showing `NOT RUN`** — `evaluateAll` only ever learns a name exists from config or
+  from what's still in `Checks` after `Load` has already dropped invalid entries, so
+  an orphaned tampered check (one that was `proofrun run`, never declared in config)
+  has no other trace to surface. This is a deliberate simplicity choice, not a
+  security gap — it never produces a PASS, only a check going silent — but don't be
+  surprised if the count of visible checks briefly drops after tampering with
+  something outside `.proofrun.yml`'s declared set.
+- The GitHub Action's trust model is **unaffected** by any of this: it never reads a
+  checked-out `receipt.json` in the first place (`rm -rf .proofrun/` before
+  `run-all`), so it doesn't lean on local signing for anything.
 
 ## GitHub Action (`action.yml`, added v0.2)
 
