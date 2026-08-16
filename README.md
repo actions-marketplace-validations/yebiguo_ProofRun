@@ -128,6 +128,43 @@ Every stored result is signed (HMAC-SHA256) with a random key generated on first
 - **No migration for pre-v0.3 receipts** — they simply read as `NOT RUN`; re-run the check.
 - **The GitHub Action doesn't rely on any of this** — it never trusts a checked-out `receipt.json` in the first place (clears `.proofrun/` before re-running), so local signing has nothing to do with what makes the Action's output trustworthy.
 
+## `receipt.json`
+
+`.proofrun/receipt.json` is a plain, readable JSON file, and an external tool is welcome to parse it directly — but the raw file on disk is **untrusted storage, not a trusted view**. Reading it yourself means doing your own signature verification (or trusting the fingerprint/exit code alone, which is exactly the false-PASS risk this whole project exists to close). If you want ProofRun's actual trust decision — signature checked, invalid entries dropped — call `proofrun status`/`proofrun report --json`, or replicate what `Receipt.Load` does (see below) rather than reading the file as-is. Here's an actual one, produced by running `proofrun run build -- go build ./...` against this repo:
+
+```json
+{
+  "schema": "proofrun/v2",
+  "checks": {
+    "build": {
+      "status": "pass",
+      "command": ["go", "build", "./..."],
+      "exit_code": 0,
+      "duration_ms": 1543,
+      "started_at": "2026-08-16T12:32:23.2985133Z",
+      "verified_against": {
+        "head": "13ee2ba83dd2d0b992101a1e7462397758704663",
+        "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "signature": "02d78d28bf62cad8226b48ce93fc6e21a29d3d4037b7bebed0b0a6628ede2a2f"
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `schema` | Format marker (`proofrun/v2` as of v0.3). A label for humans, not something verification branches on — signature validity is the real gate, not this string. |
+| `checks.<name>.status` | Literal outcome of the last real execution: `"pass"` or `"fail"`, derived only from the process's exit code. `STALE` and `NOT RUN` are never written here — they're computed at read time, not stored. |
+| `checks.<name>.command` | The exact argv that ran, as an array — never a shell string. |
+| `checks.<name>.exit_code`, `duration_ms`, `started_at` | Exactly what they say. |
+| `checks.<name>.verified_against` | The git `head` commit and `diff_sha256` fingerprint this result is bound to — this is what `status` compares against the current fingerprint to decide `PASS`/`FAIL` vs. `STALE`. |
+| `checks.<name>.signature` | HMAC-SHA256 over every other field in that check, under this machine's local key (see "Tamper-evident receipts" above). |
+
+**On disk vs. trusted view — this is the part that matters if you parse the file yourself:** a check whose signature doesn't verify is never rewritten with some `"status": "tampered"` value, and it isn't removed from the file either — nothing in ProofRun ever writes back to `receipt.json` except a real `run`/`run-all`. A hand-edited entry sits there on disk, `"status": "pass"` and all, for as long as nobody re-runs that check. What actually happens is narrower: `Receipt.Load` (the function `status`/`report` both call) parses the file, checks every entry's signature, and drops whatever doesn't verify **from the in-memory result it returns** — the check then reads as `NOT RUN` (or vanishes from `status` output entirely if it isn't declared in `.proofrun.yml`; see above). That filtering never touches the file on disk.
+
+Concretely: if you `json.parse` the raw file yourself and trust `checks.test.status == "pass"` at face value, you have exactly the false-PASS exposure this project exists to prevent — the signature check is what makes that status trustworthy, and skipping it isn't a shortcut, it's opting out of the entire mechanism. If you want to verify signatures yourself instead of shelling out to `proofrun`: it's an HMAC-SHA256 over the JSON encoding of a check's object with `signature` itself blanked to `""` first, keyed by this machine's `.proofrun/secret` — see `internal/receipt/sign.go` for the exact bytes signed if you're implementing this independently.
+
 ## GitHub Action
 
 ```yaml

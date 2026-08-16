@@ -128,6 +128,43 @@ checks:
 - **v0.3 之前生成的旧 receipt 没有迁移方案**——直接读作 `NOT RUN`,重新跑一遍就好。
 - **GitHub Action 完全不依赖这套机制**——它从来就不信任 PR 分支带过来的 `receipt.json`(重新跑之前会先清空 `.proofrun/`),所以本地签名这件事跟 Action 输出结果的可信度没有关系。
 
+## `receipt.json`
+
+`.proofrun/receipt.json` 是一份普通的、可以直接读的 JSON 文件,外部工具确实可以直接解析它——但**磁盘上这份原始文件是没有经过信任过滤的存储,不是一份已经验证过的可信视图**。自己读这份文件,就意味着你得自己做签名验证(不然就是只信指纹和退出码,而这正是这整个项目存在的意义所在——要堵住的那种假 PASS 风险)。如果你要的是 ProofRun 真正的信任判断结果(验过签名、无效条目已经被剔除),应该调用 `proofrun status`/`proofrun report --json`,或者自己照着下面说的 `Receipt.Load` 的逻辑重新实现一遍,而不是直接把文件内容当真。下面这份是真实跑出来的,对这个仓库执行 `proofrun run build -- go build ./...` 之后原样产生的:
+
+```json
+{
+  "schema": "proofrun/v2",
+  "checks": {
+    "build": {
+      "status": "pass",
+      "command": ["go", "build", "./..."],
+      "exit_code": 0,
+      "duration_ms": 1543,
+      "started_at": "2026-08-16T12:32:23.2985133Z",
+      "verified_against": {
+        "head": "13ee2ba83dd2d0b992101a1e7462397758704663",
+        "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "signature": "02d78d28bf62cad8226b48ce93fc6e21a29d3d4037b7bebed0b0a6628ede2a2f"
+    }
+  }
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `schema` | 格式标记(v0.3 起是 `proofrun/v2`)。这只是给人看的标签,不参与验证逻辑——签名是否有效才是真正的判断依据,不是这个字符串。 |
+| `checks.<name>.status` | 上一次真实执行的字面结果:`"pass"` 或 `"fail"`,只由进程的退出码决定。`STALE` 和 `NOT RUN` 从来不会写进这个文件——它们是读取的时候现算的,不是存出来的。 |
+| `checks.<name>.command` | 真正执行的完整参数数组——从来不是拼接出来的 shell 字符串。 |
+| `checks.<name>.exit_code`、`duration_ms`、`started_at` | 字面意思。 |
+| `checks.<name>.verified_against` | 这条结果绑定的 git `head` 提交和 `diff_sha256` 指纹——`status` 命令就是拿这个跟当前指纹对比,来判断到底是 `PASS`/`FAIL` 还是 `STALE`。 |
+| `checks.<name>.signature` | 用本机的本地密钥(见上面"篡改可检测的 receipt"一节),对这条记录里除 `signature` 自己以外的所有字段算出的 HMAC-SHA256。 |
+
+**"磁盘上的内容"和"可信视图"是两码事——如果你要自己解析这份文件,这是最关键的一点:** 一条检查如果签名验证不过,**既不会**被改写成 `"status": "tampered"` 这种值,**也不会从文件里被删掉**——ProofRun 除了真的执行一次 `run`/`run-all`,不会在任何其他情况下往 `receipt.json` 里写东西。一条手改过的记录会原样留在磁盘上,`"status": "pass"` 什么的都还在,一直留到有人重新跑一遍那条检查为止。真实发生的事情范围更窄:`Receipt.Load`(`status`/`report` 内部调用的就是这个函数)会解析文件、检查每条记录的签名,把验证不过的条目从**它返回的内存结果里**剔除——那条检查读出来就是 `NOT RUN`(如果这条检查根本没在 `.proofrun.yml` 里声明过,甚至会从 `status` 输出里彻底消失,见上文)。这个过滤动作从来不会碰磁盘上的文件本身。
+
+具体来说:如果你自己 `json.parse` 这份原始文件,直接相信 `checks.test.status == "pass"`,你面对的正是这个项目从一开始就要堵住的那种假 PASS 风险——签名校验才是让这个状态值得信任的那一步,跳过它不是抄近路,是彻底绕开了整套机制。如果你想自己实现签名校验、不想每次都调用 `proofrun`:做法是对某条检查对象的 JSON 编码算 HMAC-SHA256,编码前先把 `signature` 字段本身置空(`""`),密钥用的是本机 `.proofrun/secret` 里的内容——想照着实现的话,具体签的是哪些字节,看 `internal/receipt/sign.go` 里的实现。
+
 ## GitHub Action
 
 ```yaml
