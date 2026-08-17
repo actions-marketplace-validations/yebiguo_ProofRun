@@ -1,11 +1,9 @@
 name: 'ProofRun Verify'
-description: >
-  Independently re-runs every check declared in .proofrun.yml against the
-  exact PR head commit. Never trusts a receipt.json checked out from the
-  PR branch. Known limitation: this does not protect .proofrun.yml itself
-  from being weakened by the same PR that changes the code — it only
-  warns, it does not block. See the ProofRun README's "Known limitations"
-  section before relying on this for anything security-sensitive.
+# Marketplace enforces a 125-character cap on this field — see the "Known
+# limitation" callout in the README's "GitHub Action" section for the
+# .proofrun.yml-tampering caveat that used to live here; it didn't fit and
+# doesn't belong in an elevator pitch.
+description: 'Re-runs .proofrun.yml checks against the exact PR head commit. Never trusts a receipt.json checked out from the PR branch.'
 branding:
   icon: 'check-circle'
   color: 'green'
