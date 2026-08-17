@@ -164,6 +164,18 @@ after upgrading, with no migration path — see "Tamper-evident receipts" above)
 that was absorbable because `v1` didn't exist as a public dependency yet. The
 next time a change of that shape ships *after* `v1` has real consumers, it must
 get its own floating tag (`v2`) instead of being folded into `v1` — the same
-convention `actions/checkout` and most of the Marketplace follow. Don't reuse
-`v1` for a breaking change just because `release.yml`'s `float-tag` job makes
-moving it mechanically easy; easy isn't the same as compatible.
+convention `actions/checkout` and most of the Marketplace follow.
+
+This isn't just something to remember at release time: `release.yml`'s
+`float-tag` job reads which tag to move from `.github/floating-major-tag`
+(currently `v1`) rather than hardcoding it, precisely because "is this release
+compatible with what the floating tag's consumers already depend on" is a
+maintainer judgment call that can't be inferred from a `vX.Y.Z` tag by pattern
+matching — the CLI's own semver and the Action's floating-tag compatibility
+line are tracked separately on purpose. **Part of release-prep for a breaking
+release is bumping that file to `v2` in the same commit as the `pin_version`
+bump, before tagging** — that starts a new floating tag and leaves the old one
+permanently pinned at its last compatible release, instead of `float-tag`
+silently carrying existing `@v1` consumers into the breaking change. Forgetting
+this step doesn't fail loudly: `float-tag` will happily keep moving whatever
+`.github/floating-major-tag` currently says, breaking change or not.
