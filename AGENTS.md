@@ -150,11 +150,13 @@ This release-prep commit creates an intentional bootstrap gap: `dogfood.yml` use
 branch's local `action.yml`, which now tries to download the new version before that
 version has been tagged or published. Its three `verify` jobs therefore fail with a
 release-asset HTTP 404 by construction. For a release-prep PR whose diff is limited to
-the `pin_version` update, whose three `test` jobs pass, and whose `verify` logs fail only
-at that expected download, use an administrator merge (or a direct push) instead of
-waiting for `verify` to turn green. After the tag publishes the assets, re-run dogfood
-against the released version and require all three `verify` jobs to pass; this exception
-applies only to the pre-release bootstrap commit, not to ordinary changes.
+the required release metadata changes — the `pin_version` update, and, when this release
+starts a new compatibility line, the `.github/floating-major-tag` bump described below —
+whose three `test` jobs pass, and whose `verify` logs fail only at that expected download,
+use an administrator merge (or a direct push) instead of waiting for `verify` to turn
+green. After the tag publishes the assets, re-run dogfood against the released version and
+require all three `verify` jobs to pass; this exception applies only to the pre-release
+bootstrap commit, not to ordinary changes.
 
 **Floating major-tag policy.** `v1` is a promise to anyone who pins `uses:
 yebiguo/proofrun@v1`: every version it moves to stays compatible with what `v1`
