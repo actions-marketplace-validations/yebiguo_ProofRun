@@ -155,3 +155,15 @@ at that expected download, use an administrator merge (or a direct push) instead
 waiting for `verify` to turn green. After the tag publishes the assets, re-run dogfood
 against the released version and require all three `verify` jobs to pass; this exception
 applies only to the pre-release bootstrap commit, not to ordinary changes.
+
+**Floating major-tag policy.** `v1` is a promise to anyone who pins `uses:
+yebiguo/proofrun@v1`: every version it moves to stays compatible with what `v1`
+meant when they started depending on it. v0.2→v0.3 already shipped one
+incompatible change of this shape (unsigned pre-v0.3 receipts read as `NOT RUN`
+after upgrading, with no migration path — see "Tamper-evident receipts" above);
+that was absorbable because `v1` didn't exist as a public dependency yet. The
+next time a change of that shape ships *after* `v1` has real consumers, it must
+get its own floating tag (`v2`) instead of being folded into `v1` — the same
+convention `actions/checkout` and most of the Marketplace follow. Don't reuse
+`v1` for a breaking change just because `release.yml`'s `float-tag` job makes
+moving it mechanically easy; easy isn't the same as compatible.
