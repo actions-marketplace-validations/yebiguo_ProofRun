@@ -1,0 +1,10 @@
+name: Feature request / question
+description: Something you think ProofRun should do, or a question about scope.
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: What you're trying to do, and where the current design gets in the way. If this touches STALE detection, the receipt schema, or trust boundaries, say so explicitly — those get more scrutiny.
+    validations:
+      required: true
