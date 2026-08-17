@@ -1,0 +1,21 @@
+name: Bug report
+description: Something doesn't work the way this project's docs say it should.
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what actually happened. Exact commands and output beat a description.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Can you reproduce it
+      description: A minimal repo / receipt.json / .proofrun.yml that reproduces it is worth more than a long explanation — this project exists to make claims checkable, bug reports are no exception.
+  - type: input
+    id: version
+    attributes:
+      label: proofrun --version output
+    validations:
+      required: true
