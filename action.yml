@@ -6,6 +6,9 @@ description: >
   from being weakened by the same PR that changes the code — it only
   warns, it does not block. See the ProofRun README's "Known limitations"
   section before relying on this for anything security-sensitive.
+branding:
+  icon: 'check-circle'
+  color: 'green'
 runs:
   using: 'composite'
   steps:

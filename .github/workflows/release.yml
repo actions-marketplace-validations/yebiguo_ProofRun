@@ -57,16 +57,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Moves the floating `v1` tag (action.yml's own major-version pin, and the
-  # fixed download URL it hardcodes) to point at whatever this real,
+  # Moves the current floating major tag (action.yml's own major-version pin,
+  # and the fixed download URL it hardcodes) to point at whatever this real,
   # versioned release just published — so `uses: yebiguo/proofrun@v1` and
   # action.yml's `releases/download/v1/...` URLs always resolve to the
-  # latest stable release without action.yml itself needing to change.
+  # latest *compatible* release without action.yml itself needing to change.
   # Skipped for prereleases (tags with a `-suffix`, e.g. v0.2.0-rc1) so a
-  # release candidate never becomes what `@v1` users get.
+  # release candidate never becomes what floating-tag users get.
   #
-  # Deletes and recreates the `v1` release/tag each run rather than editing
-  # it in place — this relies on repo release immutability staying off
+  # Which tag counts as "current" is read from .github/floating-major-tag
+  # (currently `v1`) rather than hardcoded here — deliberately: whether a
+  # given release is compatible with what that tag's consumers already
+  # depend on is a maintainer judgment call, not something derivable from
+  # the vX.Y.Z release tag by pattern-matching (see AGENTS.md's "Floating
+  # major-tag policy"). The day a breaking change ships, release-prep must
+  # bump that file to `v2` *before* tagging — same shape as the existing
+  # pin_version bump — which starts a new floating tag and leaves the old
+  # one permanently pinned at its last compatible release instead of this
+  # job silently carrying breaking-change consumers forward.
+  #
+  # Deletes and recreates that release/tag each run rather than editing it
+  # in place — this relies on repo release immutability staying off
   # (confirmed off as of v0.2); if that's ever enabled, `gh release delete`
   # here will start failing and this job needs a different approach.
   float-tag:
@@ -78,21 +89,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Move the v1 floating tag to this release
+      - name: Move the floating major tag to this release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_TAG: ${{ github.ref_name }}
         run: |
           set -e
+          target_tag="$(cat .github/floating-major-tag)"
           workdir="$(mktemp -d)"
           gh release download "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$workdir"
 
-          # --cleanup-tag also removes the old v1 git tag; harmless if v1
-          # doesn't exist yet (first time this job runs).
-          gh release delete v1 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          # --cleanup-tag also removes the old floating git tag; harmless if
+          # it doesn't exist yet (first time this job runs for this tag).
+          gh release delete "$target_tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
 
-          gh release create v1 "$workdir"/* \
+          gh release create "$target_tag" "$workdir"/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$(git rev-parse HEAD)" \
-            --title "v1 (floating — currently $SOURCE_TAG)" \
-            --notes "Floating tag maintained by release.yml. Always mirrors the latest stable release ($SOURCE_TAG as of this run) — do not depend on this tag pointing at a fixed commit. Pin an exact release (e.g. $SOURCE_TAG) instead if you need reproducibility."
+            --title "$target_tag (floating — currently $SOURCE_TAG)" \
+            --notes "Floating tag maintained by release.yml. Always mirrors the latest compatible release ($SOURCE_TAG as of this run) — do not depend on this tag pointing at a fixed commit. Pin an exact release (e.g. $SOURCE_TAG) instead if you need reproducibility."

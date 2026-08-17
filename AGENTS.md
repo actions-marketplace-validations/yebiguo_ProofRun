@@ -150,8 +150,34 @@ This release-prep commit creates an intentional bootstrap gap: `dogfood.yml` use
 branch's local `action.yml`, which now tries to download the new version before that
 version has been tagged or published. Its three `verify` jobs therefore fail with a
 release-asset HTTP 404 by construction. For a release-prep PR whose diff is limited to
-the `pin_version` update, whose three `test` jobs pass, and whose `verify` logs fail only
-at that expected download, use an administrator merge (or a direct push) instead of
-waiting for `verify` to turn green. After the tag publishes the assets, re-run dogfood
-against the released version and require all three `verify` jobs to pass; this exception
-applies only to the pre-release bootstrap commit, not to ordinary changes.
+the required release metadata changes — the `pin_version` update, and, when this release
+starts a new compatibility line, the `.github/floating-major-tag` bump described below —
+whose three `test` jobs pass, and whose `verify` logs fail only at that expected download,
+use an administrator merge (or a direct push) instead of waiting for `verify` to turn
+green. After the tag publishes the assets, re-run dogfood against the released version and
+require all three `verify` jobs to pass; this exception applies only to the pre-release
+bootstrap commit, not to ordinary changes.
+
+**Floating major-tag policy.** `v1` is a promise to anyone who pins `uses:
+yebiguo/proofrun@v1`: every version it moves to stays compatible with what `v1`
+meant when they started depending on it. v0.2→v0.3 already shipped one
+incompatible change of this shape (unsigned pre-v0.3 receipts read as `NOT RUN`
+after upgrading, with no migration path — see "Tamper-evident receipts" above);
+that was absorbable because `v1` didn't exist as a public dependency yet. The
+next time a change of that shape ships *after* `v1` has real consumers, it must
+get its own floating tag (`v2`) instead of being folded into `v1` — the same
+convention `actions/checkout` and most of the Marketplace follow.
+
+This isn't just something to remember at release time: `release.yml`'s
+`float-tag` job reads which tag to move from `.github/floating-major-tag`
+(currently `v1`) rather than hardcoding it, precisely because "is this release
+compatible with what the floating tag's consumers already depend on" is a
+maintainer judgment call that can't be inferred from a `vX.Y.Z` tag by pattern
+matching — the CLI's own semver and the Action's floating-tag compatibility
+line are tracked separately on purpose. **Part of release-prep for a breaking
+release is bumping that file to `v2` in the same commit as the `pin_version`
+bump, before tagging** — that starts a new floating tag and leaves the old one
+permanently pinned at its last compatible release, instead of `float-tag`
+silently carrying existing `@v1` consumers into the breaking change. Forgetting
+this step doesn't fail loudly: `float-tag` will happily keep moving whatever
+`.github/floating-major-tag` currently says, breaking change or not.
