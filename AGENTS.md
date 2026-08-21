@@ -28,8 +28,14 @@ logic — that is a product guarantee, not an implementation detail. See `.proof
 
 ## Collaboration tier
 
-**Exploration tier.** You may work autonomously and push branches / open Draft PRs
-without asking first. This is a young, low-stakes, pre-1.0 project.
+**Infrastructure tier (upgraded 2026-08-20 from Exploration tier).** ProofRun is now
+wired into other tracked projects' own verification pipelines (spider_project in
+observation mode, portfolio-tracker's GitHub Action) — a regression here can produce
+false signals downstream in projects that depend on it, not just inside this repo.
+You may still branch and open Draft PRs without asking first, but **merging PRs,
+tagging releases, and moving the floating `v1` tag all require explicit user
+confirmation before acting** — do not self-merge or self-tag, even for changes that
+look small.
 
 ## High-risk changes (slow down, be extra careful here)
 
