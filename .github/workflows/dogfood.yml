@@ -10,6 +10,10 @@ name: dogfood
 on:
   pull_request:
 
+concurrency:
+  group: dogfood-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     strategy:
